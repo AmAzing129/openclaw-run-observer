@@ -22,32 +22,71 @@ exposes a local viewer for inspecting the full request and response trail for ea
 
 ## Install
 
-From ClawHub:
-
-```bash
-openclaw plugins install clawhub:openclaw-run-observer
-```
-
-If the package is also published to npm:
+This guide assumes OpenClaw is already installed.
 
 ```bash
 openclaw plugins install openclaw-run-observer
 ```
 
+Run Observer is currently published through npm. ClawHub packaging can be
+added later, but the normal user install flow today is the npm command above.
+
+## First Run
+
+After installing the plugin:
+
+1. Verify that the installed plugin was recorded as an npm install:
+
+   ```bash
+   openclaw plugins info run-observer
+   ```
+
+   You should see an install block similar to:
+   - `Source: npm`
+   - `Spec: openclaw-run-observer`
+
+2. Start the gateway:
+
+   ```bash
+   openclaw gateway run --bind loopback --allow-unconfigured
+   ```
+
+   If you already have the gateway running elsewhere, restart that existing
+   instance instead:
+
+   ```bash
+   openclaw gateway restart
+   ```
+
+3. Print the local viewer URL:
+
+   ```bash
+   openclaw run-observer url
+   ```
+
+4. Optional quick verification from the same machine:
+
+   ```bash
+   URL="$(openclaw run-observer url)"
+   curl --max-time 5 -s -o /tmp/run-observer.html -w 'HTTP %{http_code}\n' "$URL"
+   ```
+
+   A healthy local viewer should return `HTTP 200`.
+
+Note: if you are testing from a repository checkout that also contains a local
+folder named `openclaw-run-observer`, run the install command from a different
+directory so OpenClaw resolves the npm package instead of a local path.
+
 ## Usage
 
-After the plugin is enabled and the gateway is running:
-
-```bash
-openclaw run-observer url
-```
-
-That command prints the local viewer URL, including the current access token. Open the URL in a
-browser on the same machine that is running OpenClaw.
+Once the plugin is installed and the gateway is running, use
+`openclaw run-observer url` to print the local viewer URL with the current
+access token. Open that URL in a browser on the same machine that is running
+OpenClaw.
 
 The viewer updates live as new run attempts are captured.
 
-To rotate the token:
+Use this command to rotate the token:
 
 ```bash
 openclaw run-observer rotate-token
