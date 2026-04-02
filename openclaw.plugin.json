@@ -1,0 +1,10 @@
+{
+  "id": "run-observer",
+  "name": "Run Observer",
+  "description": "Capture OpenClaw run inputs, outputs, usage, and context, persist recent attempts, and inspect them in a live local viewer.",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}
