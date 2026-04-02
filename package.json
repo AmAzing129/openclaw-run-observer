@@ -1,8 +1,17 @@
 {
   "name": "openclaw-run-observer",
-  "version": "0.1.0",
+  "version": "0.0.1",
   "type": "module",
   "description": "Capture OpenClaw run inputs, outputs, usage, and context, persist recent attempts, and inspect them in a live local viewer.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AmAzing129/openclaw-run-observer.git"
+  },
+  "homepage": "https://github.com/AmAzing129/openclaw-run-observer#readme",
+  "bugs": {
+    "url": "https://github.com/AmAzing129/openclaw-run-observer/issues"
+  },
   "keywords": [
     "openclaw",
     "plugin",
