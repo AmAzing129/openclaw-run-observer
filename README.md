@@ -99,7 +99,7 @@ Rotating the token invalidates previously shared viewer links.
 - The viewer only accepts loopback connections
 - Requests must include the current Run Observer access token
 - The `url` command prints a tokenized local URL, and `rotate-token` replaces that token
-- Viewer assets are self-contained and do not fetch third-party icons or telemetry
+- The session list may fetch channel icons from `https://cdn.simpleicons.org` and provider icons from `https://unpkg.com/@lobehub/icons-static-png@latest/light`; the viewer does not send telemetry
 
 ## Privacy notes
 
@@ -125,6 +125,16 @@ Build output is emitted to `dist/`:
 ```bash
 pnpm run build
 ```
+
+For local plugin development, this repo also includes a watch loop that rebuilds
+on TypeScript changes and restarts the configured OpenClaw gateway service after
+each successful build:
+
+```bash
+pnpm run dev
+```
+
+This expects `openclaw gateway restart` to work on your machine.
 
 ## ClawHub Publish
 

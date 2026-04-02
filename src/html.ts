@@ -1,4 +1,369 @@
+import type { RunObserverRunSummary } from "./types.js";
 import { escapeHtml } from "./utils.js";
+
+const SIMPLE_ICONS_CDN_BASE = "https://cdn.simpleicons.org";
+const LOBEHUB_ICONS_PNG_LIGHT_CDN_BASE =
+  "https://unpkg.com/@lobehub/icons-static-png@latest/light";
+
+const CHANNEL_ICON_MAP: Record<string, string> = {
+  discord: "discord",
+  telegram: "telegram",
+  whatsapp: "whatsapp",
+  slack: "slack",
+  signal: "signal",
+  googlechat: "googlechat",
+  "google chat": "googlechat",
+  imessage: "imessage",
+  irc: "irc",
+  line: "line",
+};
+
+const PROVIDER_ICON_MAP: Record<string, string> = {
+  vercel: "vercel",
+  openrouter: "openrouter",
+  "azure-openai": "azure-color",
+  azure: "azure-color",
+  openai: "openai",
+  anthropic: "anthropic",
+  claude: "anthropic",
+  google: "google-color",
+  gemini: "google-color",
+  vertex: "google-color",
+  deepseek: "deepseek-color",
+  mistral: "mistral-color",
+  meta: "meta-color",
+  llama: "meta-color",
+  cohere: "cohere-color",
+  perplexity: "perplexity-color",
+  groq: "groq",
+  together: "together-color",
+  togetherai: "together-color",
+  fireworks: "fireworks-color",
+  amazon: "aws-color",
+  aws: "aws-color",
+  bedrock: "aws-color",
+  zhipu: "zhipu-color",
+  moonshot: "moonshot",
+  qwen: "qwen-color",
+  alibaba: "alibaba-color",
+  baichuan: "baichuan-color",
+  minimax: "minimax-color",
+  yi: "zeroone",
+  "01": "zeroone",
+  ai21: "ai21-brand-color",
+  bytedance: "bytedance-color",
+  doubao: "bytedance-color",
+  spark: "spark-color",
+  ollama: "ollama",
+  huggingface: "huggingface-color",
+  replicate: "replicate-brand",
+  xai: "xai",
+  grok: "xai",
+  siliconflow: "siliconcloud-color",
+  siliconcloud: "siliconcloud-color",
+  stepfun: "stepfun-color",
+  nvidia: "nvidia-color",
+  cloudflare: "cloudflare-color",
+  "workers-ai": "cloudflare-color",
+  workersai: "cloudflare-color",
+  sambanova: "sambanova-color",
+  cerebras: "cerebras-brand-color",
+};
+
+export type RunObserverSidebarRunGroup = {
+  id: string;
+  runId: string;
+  updatedAt: number;
+  attempts: RunObserverRunSummary[];
+};
+
+export type RunObserverSidebarSessionInstanceGroup = {
+  id: string;
+  routingLabel: string;
+  updatedAt: number;
+  sessionId?: string;
+  reportedCostUsd?: number;
+  estimatedCostUsd?: number;
+  runs: RunObserverSidebarRunGroup[];
+};
+
+export type RunObserverSidebarSessionGroup = {
+  id: string;
+  label: string;
+  routingLabel: string;
+  updatedAt: number;
+  provider: string;
+  model: string;
+  channelLabel: string;
+  sessionKey?: string;
+  sessionId?: string;
+  reportedCostUsd?: number;
+  estimatedCostUsd?: number;
+  instances: RunObserverSidebarSessionInstanceGroup[];
+};
+
+export function buildSessionSidebarGroupId(
+  run: Pick<
+    RunObserverRunSummary,
+    "sessionKey" | "sessionId" | "runId" | "runAttemptId"
+  >,
+): string {
+  const normalizeText = (value: unknown): string =>
+    typeof value === "string" ? value.trim() : "";
+  const sessionKey = normalizeText(run.sessionKey);
+  if (sessionKey) return "session-key:" + sessionKey;
+  const sessionId = normalizeText(run.sessionId);
+  if (sessionId) return "session-id:" + sessionId;
+  return "run:" + normalizeText(run.runId || run.runAttemptId || "");
+}
+
+export function buildSessionSidebarInstanceId(
+  sessionGroupId: string,
+  run: Pick<RunObserverRunSummary, "sessionId" | "runId" | "runAttemptId">,
+): string {
+  const normalizeText = (value: unknown): string =>
+    typeof value === "string" ? value.trim() : "";
+  const sessionId = normalizeText(run.sessionId);
+  if (sessionId) return sessionGroupId + "::session:" + sessionId;
+  return (
+    sessionGroupId +
+    "::session:" +
+    normalizeText(run.runId || run.runAttemptId || "detached")
+  );
+}
+
+export function buildSidebarRunGroupId(
+  sessionInstanceId: string,
+  run: Pick<RunObserverRunSummary, "runId" | "runAttemptId">,
+): string {
+  const normalizeText = (value: unknown): string =>
+    typeof value === "string" ? value.trim() : "";
+  return (
+    sessionInstanceId +
+    "::run:" +
+    normalizeText(run.runId || run.runAttemptId || "detached")
+  );
+}
+
+export function buildSessionSidebarGroups(
+  runs: RunObserverRunSummary[],
+): RunObserverSidebarSessionGroup[] {
+  const normalizeText = (value: unknown): string =>
+    typeof value === "string" ? value.trim() : "";
+  const readKnownUsd = (value: unknown): number | undefined =>
+    typeof value === "number" && Number.isFinite(value) ? value : undefined;
+  const readCostValues = (
+    record: Pick<RunObserverRunSummary, "reportedCostUsd" | "estimatedCostUsd">,
+  ) => ({
+    reportedCostUsd: readKnownUsd(record.reportedCostUsd),
+    estimatedCostUsd: readKnownUsd(record.estimatedCostUsd),
+  });
+  const deriveAgentLabelFromSessionKey = (sessionKey: string): string => {
+    const normalized = normalizeText(sessionKey);
+    if (!normalized.startsWith("agent:")) return "";
+    const parts = normalized.split(":").filter(Boolean);
+    return parts.length >= 2 ? parts.slice(0, 2).join(":") : normalized;
+  };
+  const getAgentLabel = (
+    run: Pick<RunObserverRunSummary, "agentId" | "sessionKey">,
+  ): string =>
+    normalizeText(run.agentId) ||
+    deriveAgentLabelFromSessionKey(run.sessionKey || "");
+  const getChannelLabel = (
+    run: Pick<RunObserverRunSummary, "messageProvider" | "channelId">,
+  ): string => {
+    const provider = normalizeText(run.messageProvider);
+    const channel = normalizeText(run.channelId);
+    if (provider && channel && channel !== provider) {
+      return /^[a-z0-9._:-]{1,24}$/i.test(channel)
+        ? provider + " / " + channel
+        : provider;
+    }
+    return provider || channel;
+  };
+  const getSessionLabel = (
+    run: Pick<RunObserverRunSummary, "agentId" | "sessionKey">,
+  ): string => getAgentLabel(run) || "Agent session";
+
+  const grouped = new Map<
+    string,
+    {
+      id: string;
+      label: string;
+      routingLabel: string;
+      updatedAt: number;
+      provider: string;
+      model: string;
+      channelLabel: string;
+      sessionKey?: string;
+      sessionId?: string;
+      reportedCostUsd: number;
+      estimatedCostUsd: number;
+      hasReportedCost: boolean;
+      hasEstimatedCost: boolean;
+      instancesById: Map<
+        string,
+        {
+          id: string;
+          routingLabel: string;
+          updatedAt: number;
+          sessionId?: string;
+          reportedCostUsd: number;
+          estimatedCostUsd: number;
+          hasReportedCost: boolean;
+          hasEstimatedCost: boolean;
+          runsById: Map<string, RunObserverSidebarRunGroup>;
+        }
+      >;
+    }
+  >();
+
+  for (const run of runs) {
+    const sessionGroupId = buildSessionSidebarGroupId(run);
+    const sessionInstanceId = buildSessionSidebarInstanceId(
+      sessionGroupId,
+      run,
+    );
+    const runGroupId = buildSidebarRunGroupId(sessionInstanceId, run);
+    const sessionKey = normalizeText(run.sessionKey);
+    const sessionId = normalizeText(run.sessionId);
+    const routingLabel = sessionKey || sessionId || normalizeText(run.runId);
+    const existing = grouped.get(sessionGroupId) || {
+      id: sessionGroupId,
+      label: getSessionLabel(run),
+      routingLabel,
+      updatedAt: run.updatedAt,
+      provider: normalizeText(run.provider),
+      model: normalizeText(run.model),
+      channelLabel: getChannelLabel(run),
+      ...(sessionKey ? { sessionKey } : {}),
+      ...(sessionId ? { sessionId } : {}),
+      reportedCostUsd: 0,
+      estimatedCostUsd: 0,
+      hasReportedCost: false,
+      hasEstimatedCost: false,
+      instancesById: new Map(),
+    };
+    if (run.updatedAt >= existing.updatedAt) {
+      existing.updatedAt = run.updatedAt;
+      existing.label = getSessionLabel(run);
+      existing.routingLabel = routingLabel || existing.routingLabel;
+      existing.provider = normalizeText(run.provider) || existing.provider;
+      existing.model = normalizeText(run.model) || existing.model;
+      existing.channelLabel = getChannelLabel(run) || existing.channelLabel;
+      if (sessionKey) {
+        existing.sessionKey = sessionKey;
+      }
+      if (sessionId) {
+        existing.sessionId = sessionId;
+      }
+    }
+
+    const runCosts = readCostValues(run);
+    if (runCosts.reportedCostUsd !== undefined) {
+      existing.reportedCostUsd += runCosts.reportedCostUsd;
+      existing.hasReportedCost = true;
+    }
+    if (runCosts.estimatedCostUsd !== undefined) {
+      existing.estimatedCostUsd += runCosts.estimatedCostUsd;
+      existing.hasEstimatedCost = true;
+    }
+
+    const existingInstance = existing.instancesById.get(sessionInstanceId) || {
+      id: sessionInstanceId,
+      routingLabel:
+        sessionId ||
+        normalizeText(run.runId) ||
+        normalizeText(run.runAttemptId) ||
+        "Detached run",
+      updatedAt: run.updatedAt,
+      ...(sessionId ? { sessionId } : {}),
+      reportedCostUsd: 0,
+      estimatedCostUsd: 0,
+      hasReportedCost: false,
+      hasEstimatedCost: false,
+      runsById: new Map(),
+    };
+    if (run.updatedAt >= existingInstance.updatedAt) {
+      existingInstance.updatedAt = run.updatedAt;
+      existingInstance.routingLabel =
+        sessionId ||
+        normalizeText(run.runId) ||
+        normalizeText(run.runAttemptId) ||
+        existingInstance.routingLabel;
+      if (sessionId) {
+        existingInstance.sessionId = sessionId;
+      }
+    }
+    if (runCosts.reportedCostUsd !== undefined) {
+      existingInstance.reportedCostUsd += runCosts.reportedCostUsd;
+      existingInstance.hasReportedCost = true;
+    }
+    if (runCosts.estimatedCostUsd !== undefined) {
+      existingInstance.estimatedCostUsd += runCosts.estimatedCostUsd;
+      existingInstance.hasEstimatedCost = true;
+    }
+
+    const existingRunGroup = existingInstance.runsById.get(runGroupId) || {
+      id: runGroupId,
+      runId: normalizeText(run.runId),
+      updatedAt: run.updatedAt,
+      attempts: [],
+    };
+    existingRunGroup.attempts.push(run);
+    if (run.updatedAt >= existingRunGroup.updatedAt) {
+      existingRunGroup.updatedAt = run.updatedAt;
+      existingRunGroup.runId =
+        normalizeText(run.runId) || existingRunGroup.runId;
+    }
+
+    existingInstance.runsById.set(runGroupId, existingRunGroup);
+    existing.instancesById.set(sessionInstanceId, existingInstance);
+    grouped.set(sessionGroupId, existing);
+  }
+
+  return Array.from(grouped.values())
+    .map((group) => ({
+      id: group.id,
+      label: group.label,
+      routingLabel: group.routingLabel,
+      updatedAt: group.updatedAt,
+      provider: group.provider,
+      model: group.model,
+      channelLabel: group.channelLabel,
+      ...(group.sessionKey ? { sessionKey: group.sessionKey } : {}),
+      ...(group.sessionId ? { sessionId: group.sessionId } : {}),
+      ...(group.hasReportedCost
+        ? { reportedCostUsd: group.reportedCostUsd }
+        : {}),
+      ...(group.hasEstimatedCost
+        ? { estimatedCostUsd: group.estimatedCostUsd }
+        : {}),
+      instances: Array.from(group.instancesById.values())
+        .map((instance) => ({
+          id: instance.id,
+          routingLabel: instance.routingLabel,
+          updatedAt: instance.updatedAt,
+          ...(instance.sessionId ? { sessionId: instance.sessionId } : {}),
+          ...(instance.hasReportedCost
+            ? { reportedCostUsd: instance.reportedCostUsd }
+            : {}),
+          ...(instance.hasEstimatedCost
+            ? { estimatedCostUsd: instance.estimatedCostUsd }
+            : {}),
+          runs: Array.from(instance.runsById.values())
+            .map((runGroup) => ({
+              ...runGroup,
+              attempts: runGroup.attempts.sort(
+                (left, right) => right.updatedAt - left.updatedAt,
+              ),
+            }))
+            .sort((left, right) => right.updatedAt - left.updatedAt),
+        }))
+        .sort((left, right) => right.updatedAt - left.updatedAt),
+    }))
+    .sort((left, right) => right.updatedAt - left.updatedAt);
+}
 
 export function pickOpenClawUsageFields(usage: unknown): {
   input?: number;
@@ -18,7 +383,13 @@ export function pickOpenClawUsageFields(usage: unknown): {
     cacheWrite?: number;
     total?: number;
   } = {};
-  for (const key of ["input", "output", "cacheRead", "cacheWrite", "total"] as const) {
+  for (const key of [
+    "input",
+    "output",
+    "cacheRead",
+    "cacheWrite",
+    "total",
+  ] as const) {
     const value = record[key];
     if (typeof value === "number" && Number.isFinite(value)) {
       picked[key] = value;
@@ -27,10 +398,25 @@ export function pickOpenClawUsageFields(usage: unknown): {
   return picked;
 }
 
-export function renderRunObserverHtml(params: { basePath: string; pluginName: string }): string {
+export function renderRunObserverHtml(params: {
+  basePath: string;
+  pluginName: string;
+}): string {
   const basePath = escapeHtml(params.basePath.replace(/\/$/, ""));
   const pluginName = escapeHtml(params.pluginName);
   const pickOpenClawUsageFieldsSource = pickOpenClawUsageFields.toString();
+  const buildSessionSidebarGroupIdSource =
+    buildSessionSidebarGroupId.toString();
+  const buildSessionSidebarInstanceIdSource =
+    buildSessionSidebarInstanceId.toString();
+  const buildSidebarRunGroupIdSource = buildSidebarRunGroupId.toString();
+  const buildSessionSidebarGroupsSource = buildSessionSidebarGroups.toString();
+  const simpleIconsCdnBaseSource = JSON.stringify(SIMPLE_ICONS_CDN_BASE);
+  const lobehubIconsPngLightCdnBaseSource = JSON.stringify(
+    LOBEHUB_ICONS_PNG_LIGHT_CDN_BASE,
+  );
+  const channelIconMapSource = JSON.stringify(CHANNEL_ICON_MAP);
+  const providerIconMapSource = JSON.stringify(PROVIDER_ICON_MAP);
   return `<!doctype html>
 <html lang="en">
   <head>
@@ -126,20 +512,21 @@ export function renderRunObserverHtml(params: { basePath: string; pluginName: st
         padding: 6px 10px 10px;
       }
 
-      .session-group {
-        margin-top: 6px;
-        border: 1px solid rgba(148, 97, 45, 0.12);
-        border-radius: 14px;
-        background: rgba(255, 255, 255, 0.44);
-        overflow: hidden;
+      .session-browser {
+        display: grid;
+        grid-template-columns: 148px minmax(0, 1fr);
+        gap: 12px;
+        align-items: start;
       }
 
-      .session-group.expanded {
-        background: rgba(255, 255, 255, 0.62);
-        border-color: rgba(148, 97, 45, 0.22);
+      .session-tabs {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
       }
 
-      .session-toggle,
+      .session-tab,
+      .session-instance-toggle,
       .run-toggle,
       .record {
         width: 100%;
@@ -151,44 +538,63 @@ export function renderRunObserverHtml(params: { basePath: string; pluginName: st
         font: inherit;
       }
 
-      .session-toggle {
-        padding: 10px 14px;
-        transition: background 140ms ease;
+      .session-tab {
+        padding: 10px 12px;
+        border-radius: 14px;
+        border: 1px solid rgba(148, 97, 45, 0.12);
+        background: rgba(255, 255, 255, 0.44);
+        transition:
+          transform 140ms ease,
+          border-color 140ms ease,
+          background 140ms ease,
+          box-shadow 140ms ease;
       }
 
-      .session-toggle:hover {
-        background: rgba(255, 255, 255, 0.32);
+      .session-tab:hover {
+        transform: translateY(-1px);
+        border-color: rgba(148, 97, 45, 0.24);
+        background: rgba(255, 255, 255, 0.58);
       }
 
-      .session-toggle-row {
+      .session-tab.active {
+        background: linear-gradient(180deg, rgba(255, 249, 240, 0.96), rgba(248, 238, 224, 0.94));
+        border-color: rgba(148, 97, 45, 0.3);
+        box-shadow: 0 10px 24px rgba(53, 38, 22, 0.08);
+      }
+
+      .session-tab-row {
         display: grid;
-        grid-template-columns: auto minmax(0, 1fr);
-        gap: 8px;
-        align-items: center;
+        gap: 4px;
       }
 
-      .session-caret {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        width: 20px;
-        height: 20px;
-        margin-top: 2px;
-        color: var(--muted);
-        transition: transform 140ms ease;
+      .session-panel {
+        min-width: 0;
       }
 
-      .session-toggle[aria-expanded="true"] .session-caret {
-        transform: rotate(90deg);
+      .session-panel-header {
+        border: 1px solid rgba(148, 97, 45, 0.14);
+        border-radius: 16px;
+        background: rgba(255, 255, 255, 0.5);
+        padding: 12px 14px;
       }
 
-      .session-title {
+      .session-tab-title,
+      .session-panel-title {
         font-weight: 700;
         font-size: 13px;
         line-height: 1.3;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .session-panel-title {
+        font-size: 14px;
       }
 
       .session-subtitle,
+      .session-tab-subtitle,
+      .session-panel-subtitle,
       .record-subtitle,
       .empty,
       .callout,
@@ -229,8 +635,6 @@ export function renderRunObserverHtml(params: { basePath: string; pluginName: st
         display: inline-flex;
         align-items: center;
         gap: 5px;
-        margin-left: 6px;
-        vertical-align: middle;
       }
 
       .session-icon {
@@ -241,22 +645,108 @@ export function renderRunObserverHtml(params: { basePath: string; pluginName: st
       }
 
       .session-subtitle,
+      .session-tab-title,
+      .session-tab-subtitle,
+      .session-panel-title,
       .record-title,
       .record-subtitle {
         overflow: hidden;
         text-overflow: ellipsis;
       }
 
+      .session-tab-subtitle,
       .session-subtitle {
         margin-top: 2px;
         font-size: 11px;
         line-height: 1.3;
       }
 
-      .session-body {
-        margin: 0 12px 8px 22px;
-        padding-left: 12px;
-        border-left: 1px solid rgba(148, 97, 45, 0.16);
+      .session-panel-subtitle {
+        margin-top: 4px;
+        font-size: 12px;
+        line-height: 1.45;
+        overflow: visible;
+        text-overflow: clip;
+        white-space: normal;
+        overflow-wrap: anywhere;
+      }
+
+      .session-panel-body {
+        margin-top: 8px;
+      }
+
+      .session-instance-group {
+        margin-top: 4px;
+        border: 1px solid rgba(148, 97, 45, 0.1);
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.34);
+        overflow: hidden;
+      }
+
+      .session-instance-group.expanded {
+        background: rgba(255, 255, 255, 0.48);
+        border-color: rgba(148, 97, 45, 0.18);
+      }
+
+      .session-instance-toggle {
+        padding: 8px 12px;
+        transition: background 140ms ease;
+      }
+
+      .session-instance-toggle:hover {
+        background: rgba(255, 255, 255, 0.28);
+      }
+
+      .session-instance-row {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr);
+        gap: 10px;
+        align-items: start;
+      }
+
+      .session-instance-caret {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 18px;
+        height: 18px;
+        margin-top: 1px;
+        color: var(--muted);
+        transition: transform 140ms ease;
+      }
+
+      .session-instance-toggle[aria-expanded="true"] .session-instance-caret {
+        transform: rotate(90deg);
+      }
+
+      .session-instance-title {
+        font-weight: 700;
+        font-size: 12px;
+        line-height: 1.3;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .session-instance-subtitle {
+        margin-top: 2px;
+        font-size: 11px;
+        color: var(--muted);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .session-instance-cost {
+        margin-top: 4px;
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--accent);
+      }
+
+      .session-instance-body {
+        margin: 0 10px 6px 18px;
+        padding-left: 10px;
+        border-left: 1px solid rgba(148, 97, 45, 0.12);
       }
 
       .run-group {
@@ -790,6 +1280,12 @@ export function renderRunObserverHtml(params: { basePath: string; pluginName: st
         color: var(--danger);
       }
 
+      .status-chip.status-interrupted {
+        background: rgba(102, 76, 148, 0.12);
+        border-color: rgba(102, 76, 148, 0.3);
+        color: #5f4aa5;
+      }
+
       .error {
         color: var(--danger);
       }
@@ -801,6 +1297,20 @@ export function renderRunObserverHtml(params: { basePath: string; pluginName: st
 
         .runs {
           max-height: none;
+        }
+
+        .session-browser {
+          grid-template-columns: 1fr;
+        }
+
+        .session-tabs {
+          flex-direction: row;
+          overflow: auto;
+          padding-bottom: 4px;
+        }
+
+        .session-tab {
+          min-width: 180px;
         }
 
         .detail {
@@ -833,9 +1343,13 @@ export function renderRunObserverHtml(params: { basePath: string; pluginName: st
           align-items: flex-start;
         }
 
-        .session-body {
-          margin-left: 18px;
-          margin-right: 12px;
+        .session-tab {
+          min-width: 160px;
+        }
+
+        .session-instance-body {
+          margin-left: 14px;
+          margin-right: 10px;
         }
 
         .run-body {
@@ -869,16 +1383,13 @@ export function renderRunObserverHtml(params: { basePath: string; pluginName: st
               <div>
                 <div class="eyebrow">Live Detail</div>
                 <h2 id="detail-title" style="margin: 10px 0 0;">Waiting for data</h2>
+                <div class="subtitle mono" id="detail-subtitle">Select an attempt from the left pane.</div>
               </div>
               <div class="right">
                 <span class="chip mono status-chip" id="status-chip" style="display:none;"></span>
                 <span class="chip mono" id="cost-chip" style="display:none;"></span>
                 <span class="chip mono" id="duration-chip" style="display:none;"></span>
-                <span class="chip mono" id="run-attempt-id-chip">run attempt: none</span>
               </div>
-            </div>
-            <div class="subtitle" id="detail-subtitle">
-              Open this page with a tokenized URL from \`openclaw run-observer url\`.
             </div>
           </div>
           <div class="detail-stats" id="detail-stats"></div>
@@ -898,14 +1409,24 @@ export function renderRunObserverHtml(params: { basePath: string; pluginName: st
       const params = new URLSearchParams(window.location.search);
       const TOKEN = params.get("token") || "";
       const pickOpenClawUsageFields = ${pickOpenClawUsageFieldsSource};
+      const buildSessionSidebarGroupId = ${buildSessionSidebarGroupIdSource};
+      const buildSessionSidebarInstanceId = ${buildSessionSidebarInstanceIdSource};
+      const buildSidebarRunGroupId = ${buildSidebarRunGroupIdSource};
+      const buildSessionGroupId = buildSessionSidebarGroupId;
+      const buildSessionInstanceGroupId = buildSessionSidebarInstanceId;
+      const buildRunGroupId = buildSidebarRunGroupId;
+      const buildSessionGroups = ${buildSessionSidebarGroupsSource};
       const state = {
         runs: [],
         detail: null,
         selectedRunAttemptId: null,
         loadingDetail: false,
         refreshingRecent: false,
-        expandedSessions: [],
+        activeSessionGroupId: null,
+        expandedSessionInstances: [],
         expandedRuns: [],
+        renderedSessionTabsSignature: "",
+        renderedSessionHeaderSignature: "",
         activeTab: "input",
       };
 
@@ -920,7 +1441,6 @@ export function renderRunObserverHtml(params: { basePath: string; pluginName: st
         detailStats: document.getElementById("detail-stats"),
         detailTabs: document.getElementById("detail-tabs"),
         connectionState: document.getElementById("connection-state"),
-        runAttemptIdChip: document.getElementById("run-attempt-id-chip"),
         refreshButton: document.getElementById("refresh-button"),
       };
 
@@ -937,6 +1457,64 @@ export function renderRunObserverHtml(params: { basePath: string; pluginName: st
           switchTab(this.getAttribute("data-tab") || "input");
         });
       }
+
+      nodes.runs.addEventListener("click", async (event) => {
+        const target = event.target instanceof Element ? event.target.closest("button") : null;
+        if (!(target instanceof HTMLButtonElement) || !nodes.runs.contains(target)) {
+          return;
+        }
+
+        if (target.classList.contains("session-tab")) {
+          const sessionId = target.getAttribute("data-session-tab-id");
+          if (!sessionId) return;
+          const sessions = buildSessionGroups(getFilteredRuns());
+          const session = sessions.find((entry) => entry.id === sessionId);
+          if (!session) return;
+          const nextAttemptId = findFirstAttemptIdForSessionGroup(session);
+          setActiveSessionGroup(session.id);
+          if (nextAttemptId && nextAttemptId !== state.selectedRunAttemptId) {
+            await selectRunAttempt(nextAttemptId);
+            return;
+          }
+          renderRuns();
+          return;
+        }
+
+        if (target.classList.contains("session-instance-toggle")) {
+          const sessionInstanceId = target.getAttribute("data-session-instance-id");
+          if (!sessionInstanceId) return;
+          const sessions = buildSessionGroups(getFilteredRuns());
+          const nextExpanded = !isSessionInstanceExpanded(sessionInstanceId);
+          setSessionInstanceExpanded(sessionInstanceId, nextExpanded);
+          if (nextExpanded) {
+            const sessionInstance = sessions
+              .flatMap((session) => session.instances)
+              .find((entry) => entry.id === sessionInstanceId);
+            if (sessionInstance) {
+              const firstMultiAttemptRun = sessionInstance.runs.find((runGroup) => runGroup.attempts.length > 1);
+              if (firstMultiAttemptRun) {
+                setRunExpanded(firstMultiAttemptRun.id, true);
+              }
+            }
+          }
+          renderRuns();
+          return;
+        }
+
+        if (target.classList.contains("run-toggle")) {
+          const runGroupId = target.getAttribute("data-run-group-id");
+          if (!runGroupId) return;
+          setRunExpanded(runGroupId, !isRunExpanded(runGroupId));
+          renderRuns();
+          return;
+        }
+
+        if (target.classList.contains("record")) {
+          const nextId = target.getAttribute("data-run-attempt-id");
+          if (!nextId) return;
+          await selectRunAttempt(nextId);
+        }
+      });
 
       function withToken(path) {
         const url = new URL(path, window.location.origin);
@@ -974,6 +1552,20 @@ export function renderRunObserverHtml(params: { basePath: string; pluginName: st
           hour: "2-digit",
           minute: "2-digit",
         }).format(date);
+      }
+
+      function formatRunStatusIcon(status) {
+        if (status === "completed") return "✅";
+        if (status === "failed") return "❌";
+        if (status === "interrupted") return "⛔";
+        if (status === "inflight") return "⏳";
+        return "";
+      }
+
+      function formatSidebarTimeWithStatus(value, status) {
+        const label = formatSidebarTime(value);
+        const icon = formatRunStatusIcon(status);
+        return icon ? label + " " + icon : label;
       }
 
       function formatDuration(value) {
@@ -1034,15 +1626,27 @@ export function renderRunObserverHtml(params: { basePath: string; pluginName: st
 
       function formatCostPairInline(record) {
         const costs = readCostValues(record);
-        return "R " + formatCostValueOrNa(costs.reportedCostUsd) + " · E " + formatCostValueOrNa(costs.estimatedCostUsd);
+        return formatCostValueOrNa(costs.reportedCostUsd) + "(" + formatCostValueOrNa(costs.estimatedCostUsd) + ")";
+      }
+
+      function formatRunCostTitle(record) {
+        const costs = readCostValues(record);
+        if (costs.reportedCostUsd === undefined && costs.estimatedCostUsd === undefined) {
+          return "";
+        }
+        return "Current run only. Reported: " +
+          formatCostValueOrNa(costs.reportedCostUsd) +
+          " | Estimated: " +
+          formatCostValueOrNa(costs.estimatedCostUsd);
       }
 
       function renderCostBreakdownCallout(run) {
         const usage = run && run.usage ? run.usage : {};
         const costs = readCostValues(usage);
         const lines = [
-          '<div><strong>Reported cost:</strong> ' + escapeInline(formatCostValueOrNa(costs.reportedCostUsd)) + "</div>",
-          '<div><strong>Estimated cost:</strong> ' + escapeInline(formatCostValueOrNa(costs.estimatedCostUsd)) + "</div>",
+          '<div><strong>Run reported cost:</strong> ' + escapeInline(formatCostValueOrNa(costs.reportedCostUsd)) + "</div>",
+          '<div><strong>Run estimated cost:</strong> ' + escapeInline(formatCostValueOrNa(costs.estimatedCostUsd)) + "</div>",
+          "<div><strong>Scope:</strong> current run only</div>",
         ];
         const pricingRates =
           costs.estimatedCostUsd !== undefined
@@ -1066,88 +1670,8 @@ export function renderRunObserverHtml(params: { basePath: string; pluginName: st
           .replaceAll('"', "&quot;");
       }
 
-      function normalizeText(value) {
-        return typeof value === "string" ? value.trim() : "";
-      }
-
-      function buildSessionGroupId(run) {
-        const sessionKey = normalizeText(run.sessionKey);
-        if (sessionKey) return "session-key:" + sessionKey;
-        const sessionId = normalizeText(run.sessionId);
-        if (sessionId) return "session-id:" + sessionId;
-        return "run:" + normalizeText(run.runId || "");
-      }
-
-      function deriveAgentLabelFromSessionKey(sessionKey) {
-        const normalized = normalizeText(sessionKey);
-        if (!normalized.startsWith("agent:")) return "";
-        const parts = normalized.split(":").filter(Boolean);
-        return parts.length >= 2 ? parts.slice(0, 2).join(":") : normalized;
-      }
-
-      function getAgentLabel(run) {
-        return normalizeText(run.agentId) || deriveAgentLabelFromSessionKey(run.sessionKey);
-      }
-
-      function getChannelLabel(run) {
-        const provider = normalizeText(run.messageProvider);
-        const channel = normalizeText(run.channelId);
-        if (provider && channel && channel !== provider) {
-          return /^[a-z0-9._:-]{1,24}$/i.test(channel) ? provider + " / " + channel : provider;
-        }
-        return provider || channel;
-      }
-
-      function getSessionLabel(run) {
-        return getAgentLabel(run) || "Agent session";
-      }
-
-      var PROVIDER_ICON_MAP = {
-        "openai": "openai",
-        "azure-openai": "azure",
-        "azure": "azure",
-        "anthropic": "anthropic",
-        "claude": "anthropic",
-        "google": "google",
-        "gemini": "google",
-        "vertex": "google",
-        "deepseek": "deepseek",
-        "mistral": "mistral",
-        "meta": "meta",
-        "llama": "meta",
-        "cohere": "cohere",
-        "perplexity": "perplexity",
-        "groq": "groq",
-        "together": "togetherai",
-        "togetherai": "togetherai",
-        "fireworks": "fireworks",
-        "amazon": "bedrock",
-        "bedrock": "bedrock",
-        "zhipu": "zhipu",
-        "moonshot": "moonshot",
-        "qwen": "qwen",
-        "alibaba": "qwen",
-        "baichuan": "baichuan",
-        "minimax": "minimax",
-        "yi": "ai01",
-        "01": "ai01",
-        "ai21": "ai21",
-        "bytedance": "doubao",
-        "doubao": "doubao",
-        "spark": "spark",
-        "ollama": "ollama",
-        "huggingface": "huggingface",
-        "replicate": "replicate",
-        "xai": "xai",
-        "grok": "xai",
-        "siliconflow": "siliconcloud",
-        "siliconcloud": "siliconcloud",
-        "stepfun": "stepfun",
-        "nvidia": "nvidia",
-        "cloudflare": "cloudflare",
-        "sambanova": "sambanova",
-        "cerebras": "cerebras",
-      };
+      var LOBEHUB_ICONS_PNG_LIGHT_CDN_BASE = ${lobehubIconsPngLightCdnBaseSource};
+      var PROVIDER_ICON_MAP = ${providerIconMapSource};
 
       function resolveProviderSlug(provider, model) {
         var p = (provider || "").toLowerCase().trim();
@@ -1164,42 +1688,29 @@ export function renderRunObserverHtml(params: { basePath: string; pluginName: st
 
       function providerIconUrl(slug) {
         if (!slug) return "";
-        // Keep the local viewer self-contained and avoid third-party asset requests.
-        return "";
+        return lobehubPngIconUrl(slug);
       }
 
-      var CHANNEL_ICON_MAP = {
-        "discord": "discord",
-        "telegram": "telegram",
-        "whatsapp": "whatsapp",
-        "slack": "slack",
-        "signal": "signal",
-        "googlechat": "googlechat",
-        "imessage": "imessage",
-        "irc": "irc",
-        "line": "line",
-      };
+      var SIMPLE_ICONS_CDN_BASE = ${simpleIconsCdnBaseSource};
+      var CHANNEL_ICON_MAP = ${channelIconMapSource};
+
+      function simpleIconUrl(slug) {
+        if (!slug) return "";
+        return SIMPLE_ICONS_CDN_BASE + "/" + encodeURIComponent(slug);
+      }
+
+      function lobehubPngIconUrl(slug) {
+        if (!slug) return "";
+        return LOBEHUB_ICONS_PNG_LIGHT_CDN_BASE + "/" + encodeURIComponent(slug) + ".png";
+      }
 
       function channelIconUrl(channelLabel) {
         var normalized = (channelLabel || "").toLowerCase().trim();
         for (var key in CHANNEL_ICON_MAP) {
           if (normalized.indexOf(key) !== -1) {
-            // Keep the local viewer self-contained and avoid third-party asset requests.
-            return "";
+            return simpleIconUrl(CHANNEL_ICON_MAP[key]);
           }
         }
-        return "";
-      }
-
-      function buildRunGroupId(sessionId, run) {
-        return sessionId + "::run:" + normalizeText(run.runId || run.runAttemptId || "detached");
-      }
-
-      function getRunTitle(run) {
-        return formatSidebarTime(run.updatedAt);
-      }
-
-      function getRunSubtitle(run) {
         return "";
       }
 
@@ -1211,16 +1722,24 @@ export function renderRunObserverHtml(params: { basePath: string; pluginName: st
         return typeof value === "number" && Number.isFinite(value) ? value : undefined;
       }
 
-      function isSessionExpanded(sessionId) {
-        return state.expandedSessions.includes(sessionId);
+      function isSessionActive(sessionId) {
+        return state.activeSessionGroupId === sessionId;
       }
 
-      function setSessionExpanded(sessionId, expanded) {
-        const next = state.expandedSessions.filter((value) => value !== sessionId);
+      function setActiveSessionGroup(sessionId) {
+        state.activeSessionGroupId = sessionId;
+      }
+
+      function isSessionInstanceExpanded(sessionInstanceId) {
+        return state.expandedSessionInstances.includes(sessionInstanceId);
+      }
+
+      function setSessionInstanceExpanded(sessionInstanceId, expanded) {
+        const next = state.expandedSessionInstances.filter((value) => value !== sessionInstanceId);
         if (expanded) {
-          next.unshift(sessionId);
+          next.unshift(sessionInstanceId);
         }
-        state.expandedSessions = next;
+        state.expandedSessionInstances = next;
       }
 
       function isRunExpanded(runGroupId) {
@@ -1235,142 +1754,196 @@ export function renderRunObserverHtml(params: { basePath: string; pluginName: st
         state.expandedRuns = next;
       }
 
-      function ensureExpandedGroups(groups) {
-        const valid = new Set(groups.map((group) => group.id));
-        const validRunIds = new Set();
-        for (const group of groups) {
-          for (const runGroup of group.runs) {
-            if (runGroup.attempts.length > 1) {
-              validRunIds.add(runGroup.id);
+      function findFirstAttemptIdForSessionGroup(session) {
+        for (const instance of session.instances) {
+          for (const runGroup of instance.runs) {
+            if (runGroup.attempts.length > 0) {
+              return runGroup.attempts[0].runAttemptId;
             }
           }
         }
-        state.expandedSessions = state.expandedSessions.filter((sessionId) => valid.has(sessionId));
+        return "";
+      }
+
+      function ensureExpandedGroups(groups) {
+        const validSessionIds = new Set(groups.map((group) => group.id));
+        const validSessionInstanceIds = new Set();
+        const validRunIds = new Set();
+        for (const group of groups) {
+          for (const instance of group.instances) {
+            validSessionInstanceIds.add(instance.id);
+            for (const runGroup of instance.runs) {
+              if (runGroup.attempts.length > 1) {
+                validRunIds.add(runGroup.id);
+              }
+            }
+          }
+        }
+        if (!state.activeSessionGroupId || !validSessionIds.has(state.activeSessionGroupId)) {
+          state.activeSessionGroupId = null;
+        }
+        state.expandedSessionInstances = state.expandedSessionInstances.filter((sessionInstanceId) => validSessionInstanceIds.has(sessionInstanceId));
         state.expandedRuns = state.expandedRuns.filter((runGroupId) => validRunIds.has(runGroupId));
 
         const selectedRun = state.runs.find((run) => run.runAttemptId === state.selectedRunAttemptId);
         if (selectedRun) {
           const selectedSessionId = buildSessionGroupId(selectedRun);
-          if (valid.has(selectedSessionId) && !isSessionExpanded(selectedSessionId)) {
-            setSessionExpanded(selectedSessionId, true);
+          if (validSessionIds.has(selectedSessionId)) {
+            setActiveSessionGroup(selectedSessionId);
           }
-          const selectedRunGroupId = buildRunGroupId(selectedSessionId, selectedRun);
+          const selectedSessionInstanceId = buildSessionInstanceGroupId(selectedSessionId, selectedRun);
+          if (validSessionInstanceIds.has(selectedSessionInstanceId) && !isSessionInstanceExpanded(selectedSessionInstanceId)) {
+            setSessionInstanceExpanded(selectedSessionInstanceId, true);
+          }
+          const selectedRunGroupId = buildRunGroupId(selectedSessionInstanceId, selectedRun);
           if (validRunIds.has(selectedRunGroupId) && !isRunExpanded(selectedRunGroupId)) {
             setRunExpanded(selectedRunGroupId, true);
           }
         }
 
-        if (state.expandedSessions.length === 0 && groups.length > 0) {
-          state.expandedSessions = [groups[0].id];
+        if (!state.activeSessionGroupId && groups.length > 0) {
+          state.activeSessionGroupId = groups[0].id;
         }
-        if (state.expandedRuns.length === 0) {
-          const firstExpandedRun = groups.flatMap((group) => group.runs).find((runGroup) => runGroup.attempts.length > 1);
+        const activeSession = groups.find((group) => group.id === state.activeSessionGroupId) || groups[0];
+        const hasExpandedVisibleSessionInstance = activeSession
+          ? activeSession.instances.some((instance) => isSessionInstanceExpanded(instance.id))
+          : false;
+        if (!hasExpandedVisibleSessionInstance) {
+          const firstExpandedSessionInstance = activeSession ? activeSession.instances[0] : undefined;
+          if (firstExpandedSessionInstance) {
+            setSessionInstanceExpanded(firstExpandedSessionInstance.id, true);
+          }
+        }
+        const hasExpandedVisibleRun = activeSession
+          ? activeSession.instances.some((instance) =>
+            instance.runs.some((runGroup) => runGroup.attempts.length > 1 && isRunExpanded(runGroup.id)))
+          : false;
+        if (!hasExpandedVisibleRun) {
+          const firstExpandedRun = (activeSession ? activeSession.instances : groups.flatMap((group) => group.instances))
+            .flatMap((instance) => instance.runs)
+            .find((runGroup) => runGroup.attempts.length > 1);
           if (firstExpandedRun) {
-            state.expandedRuns = [firstExpandedRun.id];
+            setRunExpanded(firstExpandedRun.id, true);
           }
         }
-      }
-
-      function buildSessionGroups(runs) {
-        const grouped = new Map();
-        for (const run of runs) {
-          const sessionId = buildSessionGroupId(run);
-          const runGroupId = buildRunGroupId(sessionId, run);
-          const existing = grouped.get(sessionId) || {
-            id: sessionId,
-            label: getSessionLabel(run),
-            updatedAt: run.updatedAt,
-            provider: normalizeText(run.provider),
-            model: normalizeText(run.model),
-            channelLabel: getChannelLabel(run),
-            reportedCostUsd: 0,
-            estimatedCostUsd: 0,
-            hasReportedCost: false,
-            hasEstimatedCost: false,
-            runsById: new Map(),
-            runs: [],
-          };
-          if (run.updatedAt >= existing.updatedAt) {
-            existing.updatedAt = run.updatedAt;
-            existing.label = getSessionLabel(run);
-            existing.provider = normalizeText(run.provider) || existing.provider;
-            existing.model = normalizeText(run.model) || existing.model;
-            existing.channelLabel = getChannelLabel(run) || existing.channelLabel;
-          }
-          const runCosts = readCostValues(run);
-          if (runCosts.reportedCostUsd !== undefined) {
-            existing.reportedCostUsd += runCosts.reportedCostUsd;
-            existing.hasReportedCost = true;
-          }
-          if (runCosts.estimatedCostUsd !== undefined) {
-            existing.estimatedCostUsd += runCosts.estimatedCostUsd;
-            existing.hasEstimatedCost = true;
-          }
-          const existingRunGroup = existing.runsById.get(runGroupId) || {
-            id: runGroupId,
-            runId: normalizeText(run.runId),
-            title: getRunTitle(run),
-            subtitle: getRunSubtitle(run),
-            updatedAt: run.updatedAt,
-            attempts: [],
-          };
-          existingRunGroup.attempts.push(run);
-          if (run.updatedAt >= existingRunGroup.updatedAt) {
-            existingRunGroup.updatedAt = run.updatedAt;
-            existingRunGroup.title = getRunTitle(run);
-            existingRunGroup.subtitle = getRunSubtitle(run);
-          }
-          existing.runsById.set(runGroupId, existingRunGroup);
-          grouped.set(sessionId, existing);
-        }
-
-        return Array.from(grouped.values())
-          .map((group) => ({
-            id: group.id,
-            label: group.label,
-            updatedAt: group.updatedAt,
-            provider: group.provider,
-            model: group.model,
-            channelLabel: group.channelLabel,
-            ...(group.hasReportedCost ? { reportedCostUsd: group.reportedCostUsd } : {}),
-            ...(group.hasEstimatedCost ? { estimatedCostUsd: group.estimatedCostUsd } : {}),
-            runs: Array.from(group.runsById.values())
-              .map((runGroup) => ({
-                ...runGroup,
-                attempts: runGroup.attempts.sort((left, right) => right.updatedAt - left.updatedAt),
-              }))
-              .sort((left, right) => right.updatedAt - left.updatedAt),
-          }))
-          .sort((left, right) => right.updatedAt - left.updatedAt);
       }
 
       function getFilteredRuns() {
         return state.runs;
       }
 
-      function renderRuns() {
-        const sessions = buildSessionGroups(getFilteredRuns());
-        ensureExpandedGroups(sessions);
+      function buildSessionTabsSignature(sessions) {
+        return sessions
+          .map((session) => [session.id, session.label, session.channelLabel].join("|"))
+          .join("::");
+      }
 
-        if (!sessions.length) {
-          nodes.runs.innerHTML = '<div class="empty" style="padding: 18px;">No matching runs.</div>';
+      function buildSessionHeaderSignature(session) {
+        return [
+          session.id,
+          session.label,
+          session.routingLabel,
+          session.channelLabel,
+        ].join("|");
+      }
+
+      function ensureRunBrowserLayout() {
+        if (!nodes.runs.querySelector(".session-browser")) {
+          nodes.runs.innerHTML =
+            '<div class="session-browser">' +
+              '<div class="session-tabs" role="tablist" aria-orientation="vertical"></div>' +
+              '<div class="session-panel" role="tabpanel">' +
+                '<div class="session-panel-header"></div>' +
+                '<div class="session-panel-body"></div>' +
+              '</div>' +
+            '</div>';
+        }
+        return {
+          tabs: nodes.runs.querySelector(".session-tabs"),
+          panel: nodes.runs.querySelector(".session-panel"),
+          panelHeader: nodes.runs.querySelector(".session-panel-header"),
+          panelBody: nodes.runs.querySelector(".session-panel-body"),
+        };
+      }
+
+      function updateSessionTabSelection(activeSessionId) {
+        for (const button of nodes.runs.querySelectorAll(".session-tab")) {
+          const active = button.getAttribute("data-session-tab-id") === activeSessionId;
+          button.classList.toggle("active", active);
+          button.setAttribute("aria-selected", String(active));
+        }
+      }
+
+      function renderSessionTabs(layout, sessions, activeSession) {
+        if (!(layout.tabs instanceof HTMLElement)) {
+          return;
+        }
+        const signature = buildSessionTabsSignature(sessions);
+        if (signature !== state.renderedSessionTabsSignature) {
+          layout.tabs.innerHTML = sessions
+            .map((session) => {
+              const active = session.id === activeSession.id;
+              var tabIconsHtml = "";
+              var tabChannelIconSrc = channelIconUrl(session.channelLabel);
+              if (tabChannelIconSrc) {
+                tabIconsHtml += '<img class="session-icon" src="' + escapeInline(tabChannelIconSrc) + '" alt="' + escapeInline(session.channelLabel) + '" title="' + escapeInline(session.channelLabel) + '" referrerpolicy="no-referrer" onerror="this.remove()" />';
+              }
+              var tabIconsPrefix = tabIconsHtml ? '<span class="session-icons">' + tabIconsHtml + '</span>' : "";
+              return '<button class="session-tab' + (active ? " active" : "") + '" type="button" role="tab" aria-selected="' + String(active) + '" data-session-tab-id="' + escapeInline(session.id) + '">' +
+                '<div class="session-tab-row">' +
+                  '<div class="session-tab-title" title="' + escapeInline(session.label) + '">' + tabIconsPrefix + escapeInline(session.label) + '</div>' +
+                '</div>' +
+              '</button>';
+            })
+            .join("");
+          state.renderedSessionTabsSignature = signature;
+        }
+        updateSessionTabSelection(activeSession.id);
+      }
+
+      function renderSessionPanelHeader(layout, activeSession) {
+        if (!(layout.panel instanceof HTMLElement) || !(layout.panelHeader instanceof HTMLElement)) {
+          return;
+        }
+        layout.panel.setAttribute("data-session-panel-id", activeSession.id);
+        const signature = buildSessionHeaderSignature(activeSession);
+        if (signature === state.renderedSessionHeaderSignature) {
           return;
         }
 
-        nodes.runs.innerHTML = sessions
-          .map((session) => {
-            const expanded = isSessionExpanded(session.id);
-            const body = session.runs
+        var iconsHtml = "";
+        var chIconSrc = channelIconUrl(activeSession.channelLabel);
+        if (chIconSrc) {
+          iconsHtml += '<img class="session-icon" src="' + escapeInline(chIconSrc) + '" alt="' + escapeInline(activeSession.channelLabel) + '" title="' + escapeInline(activeSession.channelLabel) + '" referrerpolicy="no-referrer" onerror="this.remove()" />';
+        }
+        var titleIconsPrefix = iconsHtml ? '<span class="session-icons">' + iconsHtml + '</span>' : '';
+        var routingSubtitle = activeSession.routingLabel
+          ? '<div class="session-panel-subtitle mono" title="' + escapeInline(activeSession.routingLabel) + '">' + escapeInline(activeSession.routingLabel) + '</div>'
+          : '';
+
+        layout.panelHeader.innerHTML =
+          '<div class="session-panel-title" title="' + escapeInline(activeSession.label) + '">' + titleIconsPrefix + escapeInline(activeSession.label) + '</div>' +
+          routingSubtitle;
+        state.renderedSessionHeaderSignature = signature;
+      }
+
+      function renderSessionPanelBody(layout, activeSession) {
+        if (!(layout.panelBody instanceof HTMLElement)) {
+          return;
+        }
+        const body = activeSession.instances
+          .map((instance) => {
+            const instanceExpanded = isSessionInstanceExpanded(instance.id);
+            const instanceBody = instance.runs
               .map((runGroup) => {
                 if (runGroup.attempts.length <= 1) {
                   const attempt = runGroup.attempts[0];
                   const selected = attempt.runAttemptId === state.selectedRunAttemptId ? " active" : "";
-                  const costLabel = formatCostPairInline(attempt);
-                  const costSuffix = costLabel ? ' <span class="mono" style="color:var(--accent);font-weight:600;">' + escapeInline(costLabel) + '</span>' : '';
+                  const recordTitle = formatSidebarTimeWithStatus(runGroup.updatedAt, attempt.status);
                   return '<button class="record' + selected + '" type="button" data-run-attempt-id="' + escapeInline(attempt.runAttemptId) + '">' +
                     '<div class="record-head">' +
                       '<div>' +
-                        '<div class="record-title" title="' + escapeInline(runGroup.title) + '">' + escapeInline(runGroup.title) + costSuffix + '</div>' +
+                        '<div class="record-title" title="' + escapeInline(recordTitle) + '">' + escapeInline(recordTitle) + '</div>' +
                       '</div>' +
                     '</div>' +
                   '</button>';
@@ -1381,26 +1954,26 @@ export function renderRunObserverHtml(params: { basePath: string; pluginName: st
                   .map((attempt) => {
                     const selected = attempt.runAttemptId === state.selectedRunAttemptId ? " active" : "";
                     const title = formatAttemptLabel(attempt);
-                    const subtitle = formatSidebarTime(attempt.updatedAt);
-                    const attemptCostLabel = formatCostPairInline(attempt);
-                    const attemptCostSuffix = attemptCostLabel ? ' <span class="mono" style="color:var(--accent);font-weight:600;">' + escapeInline(attemptCostLabel) + '</span>' : '';
+                    const subtitle = formatSidebarTimeWithStatus(attempt.updatedAt, attempt.status);
                     return '<button class="record' + selected + '" type="button" data-run-attempt-id="' + escapeInline(attempt.runAttemptId) + '">' +
                       '<div class="record-head">' +
                         '<div>' +
-                          '<div class="record-title" title="' + escapeInline(title) + '">' + escapeInline(title) + attemptCostSuffix + '</div>' +
+                          '<div class="record-title" title="' + escapeInline(title) + '">' + escapeInline(title) + '</div>' +
                           '<div class="record-subtitle mono" title="' + escapeInline(subtitle) + '">' + escapeInline(subtitle) + '</div>' +
                         '</div>' +
                       '</div>' +
                     '</button>';
                   })
                   .join("");
+                const latestAttempt = runGroup.attempts[0];
+                const runTitle = formatSidebarTimeWithStatus(runGroup.updatedAt, latestAttempt && latestAttempt.status);
 
                 return '<section class="run-group' + (runExpanded ? " expanded" : "") + '">' +
                   '<button class="run-toggle" type="button" data-run-group-id="' + escapeInline(runGroup.id) + '" aria-expanded="' + String(runExpanded) + '">' +
                     '<div class="run-toggle-row">' +
                       '<span class="run-caret mono" aria-hidden="true">&gt;</span>' +
                       '<div>' +
-                        '<div class="run-title" title="' + escapeInline(runGroup.title) + '">' + escapeInline(runGroup.title) + '</div>' +
+                        '<div class="run-title" title="' + escapeInline(runTitle) + '">' + escapeInline(runTitle) + '</div>' +
                       '</div>' +
                     '</div>' +
                   '</button>' +
@@ -1409,76 +1982,71 @@ export function renderRunObserverHtml(params: { basePath: string; pluginName: st
               })
               .join("");
 
-            var iconsHtml = "";
-            var chIconSrc = channelIconUrl(session.channelLabel);
-            if (chIconSrc) {
-              iconsHtml += '<img class="session-icon" src="' + escapeInline(chIconSrc) + '" alt="' + escapeInline(session.channelLabel) + '" title="' + escapeInline(session.channelLabel) + '" />';
-            }
-            var providerSlug = resolveProviderSlug(session.provider, session.model);
-            var modelIconSrc = providerIconUrl(providerSlug);
-            if (modelIconSrc) {
-              iconsHtml += '<img class="session-icon" src="' + escapeInline(modelIconSrc) + '" alt="' + escapeInline(session.model) + '" title="' + escapeInline(session.model) + '" />';
-            }
-            var titleIconsSuffix = iconsHtml ? '<span class="session-icons">' + iconsHtml + '</span>' : '';
-            var sessionCostLabel = formatCostPairInline(session);
-            var sessionCostSuffix = sessionCostLabel ? ' <span class="mono" style="color:var(--accent);font-weight:600;">' + escapeInline(sessionCostLabel) + '</span>' : '';
-
-            return '<section class="session-group' + (expanded ? " expanded" : "") + '">' +
-              '<button class="session-toggle" type="button" data-session-id="' + escapeInline(session.id) + '" aria-expanded="' + String(expanded) + '">' +
-                '<div class="session-toggle-row">' +
-                  '<span class="session-caret mono" aria-hidden="true">&gt;</span>' +
+            const instanceCostLabel = formatCostPairInline(instance);
+            const instanceCostLine = instanceCostLabel
+              ? '<div class="session-instance-cost mono">' + escapeInline(instanceCostLabel) + '</div>'
+              : '';
+            return '<section class="session-instance-group' + (instanceExpanded ? " expanded" : "") + '">' +
+              '<button class="session-instance-toggle" type="button" data-session-instance-id="' + escapeInline(instance.id) + '" aria-expanded="' + String(instanceExpanded) + '">' +
+                '<div class="session-instance-row">' +
+                  '<span class="session-instance-caret mono" aria-hidden="true">&gt;</span>' +
                   '<div>' +
-                    '<div class="session-title" title="' + escapeInline(session.label) + '">' + escapeInline(session.label) + sessionCostSuffix + titleIconsSuffix + '</div>' +
-                    '<div class="session-subtitle">' + escapeInline(formatSidebarTime(session.updatedAt)) + '</div>' +
+                    '<div class="session-instance-title" title="' + escapeInline(instance.routingLabel || "Session instance") + '">' + escapeInline(instance.routingLabel || "Session instance") + '</div>' +
+                    instanceCostLine +
                   '</div>' +
                 '</div>' +
               '</button>' +
-              (expanded ? '<div class="session-body">' + body + '</div>' : "") +
+              (instanceExpanded ? '<div class="session-instance-body">' + instanceBody + '</div>' : "") +
             '</section>';
           })
           .join("");
 
-        for (const button of nodes.runs.querySelectorAll(".session-toggle")) {
-          button.addEventListener("click", () => {
-            const sessionId = button.getAttribute("data-session-id");
-            if (!sessionId) return;
-            const nextExpanded = !isSessionExpanded(sessionId);
-            setSessionExpanded(sessionId, nextExpanded);
-            if (nextExpanded) {
-              const session = sessions.find((entry) => entry.id === sessionId);
-              if (session && session.runs.length > 0) {
-                const firstMultiAttemptRun = session.runs.find((runGroup) => runGroup.attempts.length > 1);
-                if (firstMultiAttemptRun) {
-                  setRunExpanded(firstMultiAttemptRun.id, true);
-                }
-              }
-            }
-            renderRuns();
-          });
+        layout.panelBody.innerHTML = body;
+      }
+
+      function renderRuns() {
+        const sessions = buildSessionGroups(getFilteredRuns());
+        ensureExpandedGroups(sessions);
+
+        if (!sessions.length) {
+          nodes.runs.innerHTML = '<div class="empty" style="padding: 18px;">No matching runs.</div>';
+          state.renderedSessionTabsSignature = "";
+          state.renderedSessionHeaderSignature = "";
+          return;
         }
 
-        for (const button of nodes.runs.querySelectorAll(".run-toggle")) {
-          button.addEventListener("click", () => {
-            const runGroupId = button.getAttribute("data-run-group-id");
-            if (!runGroupId) return;
-            setRunExpanded(runGroupId, !isRunExpanded(runGroupId));
-            renderRuns();
-          });
-        }
+        const activeSession = sessions.find((session) => session.id === state.activeSessionGroupId) || sessions[0];
+        const layout = ensureRunBrowserLayout();
+        renderSessionTabs(layout, sessions, activeSession);
+        renderSessionPanelHeader(layout, activeSession);
+        renderSessionPanelBody(layout, activeSession);
+      }
 
+      function findRenderedRunAttemptButton(runAttemptId) {
+        if (!runAttemptId) return null;
         for (const button of nodes.runs.querySelectorAll(".record")) {
-          button.addEventListener("click", () => {
-            const nextId = button.getAttribute("data-run-attempt-id");
-            if (!nextId) return;
-            selectRunAttempt(nextId);
-          });
+          if (button.getAttribute("data-run-attempt-id") === runAttemptId) {
+            return button;
+          }
+        }
+        return null;
+      }
+
+      function updateSelectedRunButtons(nextRunAttemptId) {
+        for (const button of nodes.runs.querySelectorAll(".record.active")) {
+          if (button.getAttribute("data-run-attempt-id") !== nextRunAttemptId) {
+            button.classList.remove("active");
+          }
+        }
+        const nextButton = findRenderedRunAttemptButton(nextRunAttemptId);
+        if (nextButton) {
+          nextButton.classList.add("active");
         }
       }
 
       function renderDetail() {
         const run = state.detail;
         if (!run) {
-          nodes.runAttemptIdChip.textContent = "run attempt: none";
           nodes.detailTitle.textContent = "Waiting for data";
           nodes.detailSubtitle.textContent = "Select an attempt from the left pane.";
           nodes.statusChip.style.display = "none";
@@ -1489,9 +2057,8 @@ export function renderRunObserverHtml(params: { basePath: string; pluginName: st
           return;
         }
 
-        nodes.runAttemptIdChip.textContent = "run attempt: " + run.runAttemptId;
         nodes.detailTitle.textContent = [run.context.provider, run.context.model].filter(Boolean).join(" / ");
-        nodes.detailSubtitle.textContent = run.context.sessionKey || run.runId;
+        nodes.detailSubtitle.textContent = run.runAttemptId;
 
         var status = run.meta.status || "inflight";
         nodes.statusChip.textContent = status;
@@ -1500,6 +2067,12 @@ export function renderRunObserverHtml(params: { basePath: string; pluginName: st
 
         var costText = formatCostPairInline(run.usage);
         nodes.costChip.textContent = costText;
+        var costTitle = formatRunCostTitle(run.usage);
+        if (costTitle) {
+          nodes.costChip.title = costTitle;
+        } else {
+          nodes.costChip.removeAttribute("title");
+        }
         nodes.costChip.style.display = costText ? "" : "none";
 
         var durationText = formatDuration(run.meta.durationMs);
@@ -1842,21 +2415,44 @@ export function renderRunObserverHtml(params: { basePath: string; pluginName: st
         next.sort((left, right) => right.updatedAt - left.updatedAt);
         state.runs = next.slice(0, 200);
         const sessionId = buildSessionGroupId(runSummary);
-        setSessionExpanded(sessionId, true);
-        setRunExpanded(buildRunGroupId(sessionId, runSummary), true);
+        const sessionInstanceId = buildSessionInstanceGroupId(sessionId, runSummary);
+        if (!state.selectedRunAttemptId || state.selectedRunAttemptId === runSummary.runAttemptId) {
+          setActiveSessionGroup(sessionId);
+          setSessionInstanceExpanded(sessionInstanceId, true);
+          setRunExpanded(buildRunGroupId(sessionInstanceId, runSummary), true);
+        }
         syncFilterOptions();
         renderRuns();
       }
 
       async function selectRunAttempt(runAttemptId) {
+        const previousRunAttemptId = state.selectedRunAttemptId;
         state.selectedRunAttemptId = runAttemptId;
         const selectedSummary = state.runs.find((run) => run.runAttemptId === runAttemptId);
+        const hasRenderedButton = Boolean(findRenderedRunAttemptButton(runAttemptId));
+        let shouldRenderRuns = !hasRenderedButton;
         if (selectedSummary) {
           const sessionId = buildSessionGroupId(selectedSummary);
-          setSessionExpanded(sessionId, true);
-          setRunExpanded(buildRunGroupId(sessionId, selectedSummary), true);
+          if (!isSessionActive(sessionId)) {
+            setActiveSessionGroup(sessionId);
+            shouldRenderRuns = true;
+          }
+          const sessionInstanceId = buildSessionInstanceGroupId(sessionId, selectedSummary);
+          if (!hasRenderedButton && !isSessionInstanceExpanded(sessionInstanceId)) {
+            setSessionInstanceExpanded(sessionInstanceId, true);
+            shouldRenderRuns = true;
+          }
+          const runGroupId = buildRunGroupId(sessionInstanceId, selectedSummary);
+          if (!hasRenderedButton && !isRunExpanded(runGroupId)) {
+            setRunExpanded(runGroupId, true);
+            shouldRenderRuns = true;
+          }
         }
-        renderRuns();
+        if (shouldRenderRuns) {
+          renderRuns();
+        } else if (previousRunAttemptId !== runAttemptId) {
+          updateSelectedRunButtons(runAttemptId);
+        }
         await loadRunAttemptDetail(runAttemptId);
       }
 

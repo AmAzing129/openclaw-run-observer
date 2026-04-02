@@ -1,6 +1,6 @@
 import type { ModelPricing } from "./pricing.js";
 
-export type RunObserverStatus = "inflight" | "completed" | "failed";
+export type RunObserverStatus = "inflight" | "completed" | "failed" | "interrupted";
 export type RunObserverUsageStatus = "pending" | "available" | "unavailable";
 
 export type RunObserverContext = {

@@ -8,6 +8,7 @@ import {
 } from "openclaw/plugin-sdk/json-store";
 import {
   DEFAULT_RECENT_RUN_LIMIT,
+  INTERRUPTED_RUN_ERROR,
   PLUGIN_ID,
   RUN_OBSERVER_STORAGE_SCHEMA_VERSION,
   SSE_RETRY_MS,
@@ -24,6 +25,7 @@ import type {
   RunObserverUsage,
 } from "./types.js";
 import {
+  extractCostFromAssistantMessages,
   extractCostFromLastAssistant,
   estimateCostUsd,
   resolveModelPricing,
@@ -41,6 +43,13 @@ import {
 type RunState = {
   nextAttemptOrdinal: number;
   currentRunAttemptId?: string;
+};
+
+type RunObserverRuntimeLease = {
+  instanceId: string;
+  pid: number;
+  startedAt: number;
+  updatedAt: number;
 };
 
 type RunObserverRuntimeOptions = {
@@ -63,9 +72,11 @@ export class RunObserverRuntime {
   private readonly runSummaryCache = new Map<string, RunObserverRunSummary>();
   private readonly subscribers = new Set<ServerResponse>();
   private readonly readyPromiseByRoot = new Map<string, Promise<void>>();
+  private readonly usageCostBackfillByRunAttemptId = new Map<string, Promise<void>>();
 
   private accessState: RunObserverAccessState | null = null;
   private recent: RunObserverRunSummary[] = [];
+  private runtimeLeaseId: string | null = null;
 
   constructor(options: RunObserverRuntimeOptions) {
     this.logger = options.logger;
@@ -80,6 +91,7 @@ export class RunObserverRuntime {
   }
 
   async stop(): Promise<void> {
+    await this.releaseRuntimeLease();
     for (const subscriber of this.subscribers) {
       try {
         subscriber.end();
@@ -88,6 +100,13 @@ export class RunObserverRuntime {
       }
     }
     this.subscribers.clear();
+    this.runStates.clear();
+    this.runAttemptCache.clear();
+    this.runSummaryCache.clear();
+    this.recent = [];
+    this.accessState = null;
+    this.readyPromiseByRoot.delete(this.rootDir);
+    this.usageCostBackfillByRunAttemptId.clear();
   }
 
   async getAccessState(): Promise<RunObserverAccessState> {
@@ -253,9 +272,10 @@ export class RunObserverRuntime {
       const usage = this.normalizeUsage(payload.usage, latestPromptTokens);
       if (usage) {
         runAttempt.usage = usage;
-        this.hydrateUsageCosts(runAttempt, {
+        await this.hydrateUsageCosts(runAttempt, {
           lastAssistant: payload.lastAssistant,
           usage,
+          waitForRemotePricing: false,
         });
         runAttempt.meta.usageStatus = payload.usage ? "available" : "unavailable";
       } else {
@@ -264,6 +284,9 @@ export class RunObserverRuntime {
       }
       runAttempt.meta.updatedAt = Date.now();
       await this.persistRunAttempt(runAttempt);
+      if (this.shouldBackfillUsageCosts(runAttempt)) {
+        this.scheduleUsageCostBackfill(runAttempt);
+      }
       return cloneValue(runAttempt);
     });
   }
@@ -278,6 +301,12 @@ export class RunObserverRuntime {
       }
 
       runAttempt.output.messages = cloneValue(payload.messages);
+      if (runAttempt.usage) {
+        await this.hydrateUsageCosts(runAttempt, {
+          messages: payload.messages,
+          waitForRemotePricing: false,
+        });
+      }
       runAttempt.meta.success = payload.success;
       const error = trimOptionalString(payload.error);
       if (error !== undefined) {
@@ -314,6 +343,10 @@ export class RunObserverRuntime {
     await fs.mkdir(this.runAttemptsRootDir(), { recursive: true, mode: 0o700 });
     await fs.mkdir(this.indexDir(), { recursive: true, mode: 0o700 });
     await this.loadRecentIndex();
+    const lifecycleState = await this.claimRuntimeLease();
+    if (lifecycleState.shouldMarkInterrupted) {
+      await this.markInterruptedInflightRuns(lifecycleState.now);
+    }
     await this.refreshRecentUsageCosts();
     await this.loadAccessState();
   }
@@ -377,30 +410,47 @@ export class RunObserverRuntime {
     }
   }
 
-  private resolveReportedCostUsd(lastAssistant: unknown): number | undefined {
-    return extractCostFromLastAssistant(lastAssistant);
+  private resolveReportedCostUsd(options?: {
+    lastAssistant?: unknown;
+    messages?: unknown;
+    messageStartIndex?: number;
+  }): number | undefined {
+    const reportedFromMessages = extractCostFromAssistantMessages(
+      options?.messages,
+      options?.messageStartIndex !== undefined ? { startIndex: options.messageStartIndex } : undefined,
+    );
+    if (reportedFromMessages !== undefined) {
+      return reportedFromMessages;
+    }
+    return extractCostFromLastAssistant(options?.lastAssistant);
   }
 
-  private resolveEstimatedCost(
+  private async resolveEstimatedCost(
     usage:
       | RunObserverLlmOutputPayload["usage"]
       | Pick<RunObserverUsage, "input" | "output" | "cacheRead" | "cacheWrite">,
     provider: string,
     model: string,
+    options?: { waitForRemotePricing?: boolean },
   ):
-    | {
-        costUsd: number;
-        pricing: NonNullable<RunObserverUsage["estimatedPricingUsdPerMillion"]>;
-      }
-    | undefined {
+    Promise<
+      | {
+          costUsd: number;
+          pricing: NonNullable<RunObserverUsage["estimatedPricingUsdPerMillion"]>;
+        }
+      | undefined
+    > {
     if (!usage) {
       return undefined;
     }
-    const pricing = resolveModelPricing({
+    const pricing = await resolveModelPricing({
       config: this.config,
       provider,
       model,
       ...(this.stateDir !== undefined ? { stateDir: this.stateDir } : {}),
+      cacheFilePath: this.openRouterPricingCachePath(),
+      usage,
+      ...(options?.waitForRemotePricing === false ? { allowRemoteRefresh: false } : {}),
     });
     if (!pricing) {
       return undefined;
@@ -437,34 +487,39 @@ export class RunObserverRuntime {
     return normalized;
   }
 
-  private hydrateUsageCosts(
+  private async hydrateUsageCosts(
     runAttempt: RunObserverRunAttempt,
     options?: {
       lastAssistant?: unknown;
+      messages?: unknown;
       usage?: Pick<RunObserverUsage, "input" | "output" | "cacheRead" | "cacheWrite">;
+      waitForRemotePricing?: boolean;
     },
-  ): boolean {
+  ): Promise<boolean> {
     const usage = runAttempt.usage;
     if (!usage) {
       return false;
     }
 
     let changed = false;
-    if (usage.reportedCostUsd === undefined) {
-      const reportedCostUsd = this.resolveReportedCostUsd(
-        options?.lastAssistant ?? runAttempt.output.lastAssistant,
-      );
-      if (reportedCostUsd !== undefined) {
+    const reportedCostUsd = this.resolveReportedCostUsd({
+      ...(options?.messages !== undefined ? { messages: options.messages } : { messages: runAttempt.output.messages }),
+      messageStartIndex: this.resolveRunMessageStartIndex(runAttempt),
+      lastAssistant: options?.lastAssistant ?? runAttempt.output.lastAssistant,
+    });
+    if (reportedCostUsd !== undefined) {
+      if (usage.reportedCostUsd !== reportedCostUsd) {
         usage.reportedCostUsd = reportedCostUsd;
         changed = true;
       }
     }
 
     if (usage.estimatedCostUsd === undefined || usage.estimatedPricingUsdPerMillion === undefined) {
-      const estimatedCost = this.resolveEstimatedCost(
+      const estimatedCost = await this.resolveEstimatedCost(
         options?.usage ?? usage,
         runAttempt.context.provider,
         runAttempt.context.model,
+        options?.waitForRemotePricing === false ? { waitForRemotePricing: false } : undefined,
       );
       if (estimatedCost) {
         if (usage.estimatedCostUsd !== estimatedCost.costUsd) {
@@ -493,12 +548,65 @@ export class RunObserverRuntime {
     );
   }
 
+  private shouldBackfillUsageCosts(runAttempt: RunObserverRunAttempt): boolean {
+    return Boolean(
+      runAttempt.usage &&
+        (runAttempt.usage.estimatedCostUsd === undefined ||
+          runAttempt.usage.estimatedPricingUsdPerMillion === undefined),
+    );
+  }
+
+  private scheduleUsageCostBackfill(runAttempt: RunObserverRunAttempt): void {
+    if (this.usageCostBackfillByRunAttemptId.has(runAttempt.runAttemptId)) {
+      return;
+    }
+
+    const usage = {
+      ...(typeof runAttempt.usage?.input === "number" ? { input: runAttempt.usage.input } : {}),
+      ...(typeof runAttempt.usage?.output === "number" ? { output: runAttempt.usage.output } : {}),
+      ...(typeof runAttempt.usage?.cacheRead === "number" ? { cacheRead: runAttempt.usage.cacheRead } : {}),
+      ...(typeof runAttempt.usage?.cacheWrite === "number" ? { cacheWrite: runAttempt.usage.cacheWrite } : {}),
+    };
+    const refreshPromise = (async () => {
+      try {
+        const estimatedCost = await this.resolveEstimatedCost(usage, runAttempt.context.provider, runAttempt.context.model);
+        if (!estimatedCost || !this.readyPromiseByRoot.has(this.rootDir)) {
+          return;
+        }
+        await this.queue.enqueue(runAttempt.runId, async () => {
+          if (!this.readyPromiseByRoot.has(this.rootDir)) {
+            return;
+          }
+          const current = await this.loadRunAttemptById(runAttempt.runAttemptId);
+          if (!current?.usage || !this.shouldBackfillUsageCosts(current)) {
+            return;
+          }
+          let changed = false;
+          if (current.usage.estimatedCostUsd !== estimatedCost.costUsd) {
+            current.usage.estimatedCostUsd = estimatedCost.costUsd;
+            changed = true;
+          }
+          if (!this.isSamePricing(current.usage.estimatedPricingUsdPerMillion, estimatedCost.pricing)) {
+            current.usage.estimatedPricingUsdPerMillion = estimatedCost.pricing;
+            changed = true;
+          }
+          if (!changed) {
+            return;
+          }
+          await this.persistRunAttempt(current);
+        });
+      } catch {
+        // Best-effort pricing backfill should stay silent when remote catalogs are unavailable.
+      } finally {
+        this.usageCostBackfillByRunAttemptId.delete(runAttempt.runAttemptId);
+      }
+    })();
+    this.usageCostBackfillByRunAttemptId.set(runAttempt.runAttemptId, refreshPromise);
+  }
+
   private async refreshRecentUsageCosts(): Promise<void> {
     for (const summary of [...this.recent]) {
       if (summary.usageStatus !== "available") {
-        continue;
-      }
-      if (summary.reportedCostUsd !== undefined && summary.estimatedCostUsd !== undefined) {
         continue;
       }
 
@@ -510,11 +618,87 @@ export class RunObserverRuntime {
         continue;
       }
       this.runAttemptCache.set(loaded.value.runAttemptId, loaded.value);
-      if (!this.hydrateUsageCosts(loaded.value)) {
+      if (!(await this.hydrateUsageCosts(loaded.value))) {
         continue;
       }
       await this.persistRunAttempt(loaded.value);
     }
+  }
+
+  private async claimRuntimeLease(): Promise<{ now: number; shouldMarkInterrupted: boolean }> {
+    const now = Date.now();
+    const loaded = await readJsonFileWithFallback<RunObserverRuntimeLease | null>(
+      this.runtimeLeaseFilePath(),
+      null,
+    );
+    const lease = loaded.value;
+    const shouldMarkInterrupted = !this.hasActiveRuntimeLease(lease);
+    const next: RunObserverRuntimeLease = {
+      instanceId: createAccessToken(),
+      pid: process.pid,
+      startedAt: now,
+      updatedAt: now,
+    };
+    this.runtimeLeaseId = next.instanceId;
+    await writeJsonFileAtomically(this.runtimeLeaseFilePath(), next);
+    return { now, shouldMarkInterrupted };
+  }
+
+  private hasActiveRuntimeLease(lease: RunObserverRuntimeLease | null | undefined): boolean {
+    if (!lease || typeof lease !== "object") {
+      return false;
+    }
+    if (!Number.isInteger(lease.pid) || lease.pid <= 0) {
+      return false;
+    }
+    if (lease.pid === process.pid) {
+      return true;
+    }
+    try {
+      process.kill(lease.pid, 0);
+      return true;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException | undefined)?.code;
+      return code === "EPERM";
+    }
+  }
+
+  private async releaseRuntimeLease(): Promise<void> {
+    if (!this.runtimeLeaseId) {
+      return;
+    }
+    const loaded = await readJsonFileWithFallback<RunObserverRuntimeLease | null>(
+      this.runtimeLeaseFilePath(),
+      null,
+    );
+    if (loaded.value?.instanceId === this.runtimeLeaseId) {
+      await fs.rm(this.runtimeLeaseFilePath(), { force: true });
+    }
+    this.runtimeLeaseId = null;
+  }
+
+  private async markInterruptedInflightRuns(interruptedAt: number): Promise<void> {
+    const inflightRuns = this.recent.filter((summary) => summary.status === "inflight");
+    for (const summary of inflightRuns) {
+      const loaded = await readJsonFileWithFallback<RunObserverRunAttempt | null>(
+        this.runAttemptFilePath(summary.storageDay, summary.runAttemptId),
+        null,
+      );
+      const runAttempt = loaded.value;
+      if (!runAttempt || runAttempt.meta.status !== "inflight") {
+        continue;
+      }
+      runAttempt.meta.status = "interrupted";
+      runAttempt.meta.success = false;
+      runAttempt.meta.error = INTERRUPTED_RUN_ERROR;
+      runAttempt.meta.updatedAt = interruptedAt;
+      await this.persistRunAttempt(runAttempt);
+    }
+  }
+
+  private resolveRunMessageStartIndex(runAttempt: RunObserverRunAttempt): number {
+    const historyMessages = runAttempt.llmInput?.event.historyMessages ?? runAttempt.input.historyMessages;
+    return Array.isArray(historyMessages) ? historyMessages.length : 0;
   }
 
   private async loadCurrentRecordForRun(runId: string): Promise<RunObserverRunAttempt | null> {
@@ -527,6 +711,26 @@ export class RunObserverRuntime {
       return cached;
     }
     const summary = this.runSummaryCache.get(currentRunAttemptId);
+    if (!summary) {
+      return null;
+    }
+    const loaded = await readJsonFileWithFallback<RunObserverRunAttempt | null>(
+      this.runAttemptFilePath(summary.storageDay, summary.runAttemptId),
+      null,
+    );
+    if (!loaded.value) {
+      return null;
+    }
+    this.runAttemptCache.set(loaded.value.runAttemptId, loaded.value);
+    return loaded.value;
+  }
+
+  private async loadRunAttemptById(runAttemptId: string): Promise<RunObserverRunAttempt | null> {
+    const cached = this.runAttemptCache.get(runAttemptId);
+    if (cached) {
+      return cached;
+    }
+    const summary = this.runSummaryCache.get(runAttemptId);
     if (!summary) {
       return null;
     }
@@ -629,8 +833,16 @@ export class RunObserverRuntime {
     return path.join(this.indexDir(), "recent.json");
   }
 
+  private openRouterPricingCachePath(): string {
+    return path.join(this.indexDir(), "openrouter-pricing.json");
+  }
+
   private accessFilePath(): string {
     return path.join(this.rootDir, "access.json");
+  }
+
+  private runtimeLeaseFilePath(): string {
+    return path.join(this.rootDir, "runtime.json");
   }
 
   private schemaVersionFilePath(): string {
