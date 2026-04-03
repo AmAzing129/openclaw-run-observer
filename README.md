@@ -229,13 +229,7 @@ This expects `openclaw gateway restart` to work on your machine.
 This repository is set up to publish the package to both npm and ClawHub from a
 GitHub tag.
 
-Before the first automated release, configure:
-
-- npm trusted publishing for this repository and the workflow file
-  `.github/workflows/release.yml`
-- a GitHub Actions secret named `CLAWHUB_TOKEN`
-
-Typical release flow:
+Release flow:
 
 1. Update the version in `package.json`.
 2. Run:
@@ -254,13 +248,10 @@ Typical release flow:
 4. Create and push the matching tag:
 
    ```bash
-   git tag vX.Y.Z
+   git tag -a vX.Y.Z -m "vX.Y.Z"
    git push origin main --follow-tags
    ```
 
-Pushing `vX.Y.Z` triggers `.github/workflows/release.yml`, which:
-
-- runs `pnpm run check`
-- verifies the tag matches `package.json`
-- publishes to npm with trusted publishing
-- publishes the same version to ClawHub
+The tag must match the version in `package.json`. Pushing `vX.Y.Z` triggers
+`.github/workflows/release.yml`, which runs `pnpm run check` again and then
+publishes the same version to both npm and ClawHub.
