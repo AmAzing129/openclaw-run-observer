@@ -67,6 +67,7 @@ export class RunObserverRuntime {
   private readonly config: unknown;
   private readonly maxRecentRuns: number;
   private readonly queue = new KeyedAsyncQueue();
+  private readonly recentIndexQueue = new KeyedAsyncQueue();
   private readonly runStates = new Map<string, RunState>();
   private readonly runAttemptCache = new Map<string, RunObserverRunAttempt>();
   private readonly runSummaryCache = new Map<string, RunObserverRunSummary>();
@@ -746,25 +747,28 @@ export class RunObserverRuntime {
   }
 
   private async persistRunAttempt(runAttempt: RunObserverRunAttempt): Promise<void> {
-    this.runAttemptCache.set(runAttempt.runAttemptId, runAttempt);
-    await fs.mkdir(path.dirname(this.runAttemptFilePath(runAttempt.storageDay, runAttempt.runAttemptId)), {
-      recursive: true,
-      mode: 0o700,
+    await this.recentIndexQueue.enqueue("recent-index", async () => {
+      this.runAttemptCache.set(runAttempt.runAttemptId, runAttempt);
+      await fs.mkdir(path.dirname(this.runAttemptFilePath(runAttempt.storageDay, runAttempt.runAttemptId)), {
+        recursive: true,
+        mode: 0o700,
+      });
+      await writeJsonFileAtomically(
+        this.runAttemptFilePath(runAttempt.storageDay, runAttempt.runAttemptId),
+        runAttempt,
+      );
+      await this.loadRecentIndex();
+      const run = this.buildRunSummary(runAttempt);
+      this.runSummaryCache.set(run.runAttemptId, run);
+      this.recent = [run, ...this.recent.filter((entry) => entry.runAttemptId !== run.runAttemptId)]
+        .sort((left, right) => right.updatedAt - left.updatedAt)
+        .slice(0, this.maxRecentRuns);
+      await writeJsonFileAtomically(this.recentIndexPath(), {
+        updatedAt: Date.now(),
+        runs: this.recent,
+      } satisfies RunObserverRecentRunsIndex);
+      this.publish({ type: "upsert", run });
     });
-    await writeJsonFileAtomically(
-      this.runAttemptFilePath(runAttempt.storageDay, runAttempt.runAttemptId),
-      runAttempt,
-    );
-    const run = this.buildRunSummary(runAttempt);
-    this.runSummaryCache.set(run.runAttemptId, run);
-    this.recent = [run, ...this.recent.filter((entry) => entry.runAttemptId !== run.runAttemptId)]
-      .sort((left, right) => right.updatedAt - left.updatedAt)
-      .slice(0, this.maxRecentRuns);
-    await writeJsonFileAtomically(this.recentIndexPath(), {
-      updatedAt: Date.now(),
-      runs: this.recent,
-    } satisfies RunObserverRecentRunsIndex);
-    this.publish({ type: "upsert", run });
   }
 
   private buildRunSummary(runAttempt: RunObserverRunAttempt): RunObserverRunSummary {

@@ -311,6 +311,29 @@ export function renderRunObserverClientScript(params: {
         return value.toLocaleString() + " tok";
       }
 
+      function formatCompactTokenCount(value) {
+        if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+          return "0";
+        }
+        if (value >= 1000000) {
+          return (value / 1000000).toFixed(1) + "M";
+        }
+        if (value >= 1000) {
+          return (value / 1000).toFixed(1) + "K";
+        }
+        return String(value);
+      }
+
+      function estimateApproxPromptTokens(text) {
+        if (!text) return 0;
+        return Math.round(String(text).length / 4);
+      }
+
+      function formatApproxPromptTokens(text) {
+        var tokens = estimateApproxPromptTokens(text);
+        return "~" + formatCompactTokenCount(tokens) + " tok";
+      }
+
       function formatUsd(value) {
         if (typeof value !== "number" || !Number.isFinite(value)) return "";
         if (value >= 1) return "$" + value.toFixed(2);
@@ -1188,9 +1211,13 @@ export function renderRunObserverClientScript(params: {
       function renderPromptSection(label, text) {
         if (!text) return "";
         var needsCollapse = text.length > 500 || text.split("\\n").length > 8;
+        var approxTokens = formatApproxPromptTokens(text);
         return '<div data-copy-block>' +
           '<div class="section-header">' +
-            '<div class="section-label">' + escapeInline(label) + '</div>' +
+            '<div class="section-heading">' +
+              '<div class="section-label">' + escapeInline(label) + '</div>' +
+              '<div class="section-meta mono">' + escapeInline(approxTokens) + '</div>' +
+            '</div>' +
             renderCopyButton(label) +
           '</div>' +
           '<div class="prompt-block' + (needsCollapse ? ' collapsed' : '') + '">' +
@@ -1414,8 +1441,6 @@ export function renderRunObserverClientScript(params: {
           sessionId: run.context.sessionId || "",
           provider: run.context.provider,
           model: run.context.model,
-          ...(run.input.systemPrompt ? { systemPrompt: run.input.systemPrompt } : {}),
-          prompt: run.input.prompt || "",
           historyMessages: run.input.historyMessages || [],
           imagesCount: typeof run.input.imagesCount === "number" ? run.input.imagesCount : 0,
         };

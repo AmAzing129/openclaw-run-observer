@@ -395,6 +395,55 @@ describe("RunObserverRuntime", () => {
     expect(detail?.usage?.derivedTotalTokens).toBe(16);
   });
 
+  it("does not let a stale runtime overwrite newer recent summaries", async () => {
+    const rootDir = await fs.mkdtemp(path.join(os.tmpdir(), "run-observer-stale-writer-"));
+    cleanupDirs.add(rootDir);
+
+    const staleWriter = new RunObserverRuntime({
+      logger: createLogger(),
+      rootDir,
+    });
+    const freshWriter = new RunObserverRuntime({
+      logger: createLogger(),
+      rootDir,
+    });
+    await staleWriter.start();
+    await freshWriter.start();
+
+    await freshWriter.recordLlmInput({
+      runId: "run-fresh",
+      sessionId: "session-fresh",
+      provider: "openai",
+      model: "gpt-5.4",
+      prompt: "fresh",
+      historyMessages: [],
+      imagesCount: 0,
+      ctx: {},
+    });
+
+    await staleWriter.recordLlmInput({
+      runId: "run-stale",
+      sessionId: "session-stale",
+      provider: "anthropic",
+      model: "claude-sonnet",
+      prompt: "stale",
+      historyMessages: [],
+      imagesCount: 0,
+      ctx: {},
+    });
+
+    const recent = await freshWriter.getRecentRuns();
+    expect(recent.map((entry) => entry.runAttemptId).sort()).toEqual(["run-fresh:1", "run-stale:1"]);
+
+    const persisted = JSON.parse(
+      await fs.readFile(path.join(rootDir, "indexes", "recent.json"), "utf8"),
+    ) as { runs: Array<{ runAttemptId: string }> };
+    expect(persisted.runs.map((entry) => entry.runAttemptId).sort()).toEqual([
+      "run-fresh:1",
+      "run-stale:1",
+    ]);
+  });
+
   it("stores both reported and estimated costs when both are available", async () => {
     const config = {
       models: {

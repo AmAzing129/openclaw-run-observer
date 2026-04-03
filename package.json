@@ -1,6 +1,6 @@
 {
   "name": "openclaw-run-observer",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "type": "module",
   "description": "Capture OpenClaw run inputs, outputs, usage, and context, persist recent attempts, and inspect them in a live local viewer.",
   "license": "MIT",
@@ -47,13 +47,13 @@
     "prepack": "pnpm run build"
   },
   "devDependencies": {
-    "@types/node": "^25.5.0",
-    "openclaw": "^2026.4.1",
+    "@types/node": "^25.5.2",
+    "openclaw": "^2026.4.2",
     "typescript": "^6.0.2",
     "vitest": "^4.1.2"
   },
   "peerDependencies": {
-    "openclaw": ">=2026.4.1"
+    "openclaw": ">=2026.4.2"
   },
   "peerDependenciesMeta": {
     "openclaw": {
@@ -65,12 +65,12 @@
       "./dist/index.js"
     ],
     "compat": {
-      "pluginApi": ">=2026.4.1",
-      "minGatewayVersion": "2026.4.1"
+      "pluginApi": ">=2026.4.2",
+      "minGatewayVersion": "2026.4.2"
     },
     "build": {
-      "openclawVersion": "2026.4.1",
-      "pluginSdkVersion": "2026.4.1"
+      "openclawVersion": "2026.4.2",
+      "pluginSdkVersion": "2026.4.2"
     }
   }
 }

@@ -937,8 +937,22 @@ export const RUN_OBSERVER_VIEWER_STYLES = `
         margin-bottom: 8px;
       }
 
+      .section-heading {
+        display: flex;
+        align-items: baseline;
+        gap: 8px;
+        min-width: 0;
+      }
+
       .section-header .section-label {
         margin: 0;
+      }
+
+      .section-meta {
+        font-size: 11px;
+        color: var(--muted);
+        flex-shrink: 0;
+        white-space: nowrap;
       }
 
       .summary-title {

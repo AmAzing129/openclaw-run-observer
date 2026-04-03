@@ -371,6 +371,29 @@ describe("renderRunObserverHtml", () => {
     expect(script).not.toContain("</script>");
   });
 
+  it("shows system prompt and prompt only from the llm_input event snapshot", () => {
+    const script = renderRunObserverClientScript({
+      basePath: "/plugins/run-observer",
+    });
+
+    expect(script).toContain("if (run.llmInput && run.llmInput.event) {");
+    expect(script).not.toContain("run.input.systemPrompt");
+    expect(script).not.toContain("run.input.prompt");
+  });
+
+  it("shows approximate prompt token counts using the OpenClaw UI chars-per-token heuristic", () => {
+    const html = renderRunObserverHtml({
+      basePath: "/plugins/run-observer",
+      pluginName: "Run Observer",
+    });
+
+    expect(html).toContain("function estimateApproxPromptTokens(text) {");
+    expect(html).toContain('return Math.round(String(text).length / 4);');
+    expect(html).toContain('return "~" + formatCompactTokenCount(tokens) + " tok";');
+    expect(html).toContain('class="section-heading"');
+    expect(html).toContain('class="section-meta mono"');
+  });
+
   it("avoids rerendering the full run list when switching between already visible runs", () => {
     const html = renderRunObserverHtml({
       basePath: "/plugins/run-observer",
