@@ -1,6 +1,6 @@
 {
   "name": "openclaw-run-observer",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "type": "module",
   "description": "Capture OpenClaw run inputs, outputs, usage, and context, persist recent attempts, and inspect them in a live local viewer.",
   "license": "MIT",
