@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
-  buildSessionSidebarGroups,
-  pickOpenClawUsageFields,
   renderRunObserverHtml,
 } from "../src/html.js";
+import {
+  buildAgentChannelSidebarGroups,
+  buildSessionSidebarGroups,
+  pickOpenClawUsageFields,
+} from "../src/viewer/grouping.js";
 import type { RunObserverRunSummary } from "../src/types.js";
 
 function makeRunSummary(
@@ -122,6 +125,57 @@ describe("buildSessionSidebarGroups", () => {
   });
 });
 
+describe("buildAgentChannelSidebarGroups", () => {
+  it("groups sessionKey buckets under agent and channel", () => {
+    const groups = buildAgentChannelSidebarGroups([
+      makeRunSummary({
+        runAttemptId: "run-a:1",
+        runId: "run-a",
+        agentId: "main",
+        messageProvider: "telegram",
+        channelId: "telegram",
+        sessionId: "session-1",
+        sessionKey: "agent:main:telegram:direct:123",
+        updatedAt: 100,
+      }),
+      makeRunSummary({
+        runAttemptId: "run-b:1",
+        runId: "run-b",
+        agentId: "main",
+        messageProvider: "telegram",
+        channelId: "telegram",
+        sessionId: "session-2",
+        sessionKey: "agent:main:telegram:group:-100123:topic:77",
+        updatedAt: 200,
+      }),
+      makeRunSummary({
+        runAttemptId: "run-c:1",
+        runId: "run-c",
+        agentId: "main",
+        messageProvider: "discord",
+        channelId: "discord",
+        sessionId: "session-3",
+        sessionKey: "agent:main:discord:channel:1487002333144547400:thread:1001",
+        updatedAt: 300,
+      }),
+    ]);
+
+    expect(groups).toHaveLength(2);
+    expect(groups[0]).toMatchObject({
+      label: "main",
+      channelLabel: "discord",
+    });
+    expect(groups[1]).toMatchObject({
+      label: "main",
+      channelLabel: "telegram",
+    });
+    expect(groups[1]?.sessions.map((session) => session.routingLabel)).toEqual([
+      "agent:main:telegram:group:-100123:topic:77",
+      "agent:main:telegram:direct:123",
+    ]);
+  });
+});
+
 describe("renderRunObserverHtml", () => {
   it("renders the usage panel from filtered OpenClaw usage fields only", () => {
     const html = renderRunObserverHtml({
@@ -133,6 +187,24 @@ describe("renderRunObserverHtml", () => {
     expect(html).toContain("JSON.stringify(pickOpenClawUsageFields(run.usage), null, 2)");
     expect(html).not.toContain("JSON.stringify(run.usage || { status: usageState }, null, 2)");
     expect(html).not.toContain("usageCostHtml +");
+  });
+
+  it("keeps the viewer shell wired to token-aware API and SSE routes", () => {
+    const html = renderRunObserverHtml({
+      basePath: "/plugins/run-observer",
+      pluginName: "Run Observer",
+    });
+
+    expect(html).toContain('const BASE_PATH = "/plugins/run-observer";');
+    expect(html).toContain('const TOKEN = params.get("token") || "";');
+    expect(html).toContain('url.searchParams.set("token", TOKEN);');
+    expect(html).toContain(
+      'const payload = await fetchJson(BASE_PATH + "/api/run-attempt/" + encodeURIComponent(runAttemptId));',
+    );
+    expect(html).toContain('const payload = await fetchJson(BASE_PATH + "/api/recent");');
+    expect(html).toContain(
+      'const source = new EventSource(withToken(BASE_PATH + "/api/events"));',
+    );
   });
 
   it("embeds channel and provider icon mappings for session badges", () => {
@@ -157,7 +229,7 @@ describe("renderRunObserverHtml", () => {
       'return LOBEHUB_ICONS_PNG_LIGHT_CDN_BASE + "/" + encodeURIComponent(slug) + ".png";',
     );
     expect(html).toContain('referrerpolicy="no-referrer" onerror="this.remove()"');
-    expect(html).toContain("tabIconsPrefix + escapeInline(session.label)");
+    expect(html).toContain("tabIconsPrefix + escapeInline(group.label)");
     expect(html).toContain("titleIconsPrefix + escapeInline(activeSession.label)");
   });
 
@@ -179,17 +251,33 @@ describe("renderRunObserverHtml", () => {
       pluginName: "Run Observer",
     });
 
+    expect(html).toContain("activeAgentChannelGroupId");
     expect(html).toContain("activeSessionGroupId");
+    expect(html).toContain('class="agent-channel-tabs"');
+    expect(html).toContain("data-agent-channel-tab-id");
     expect(html).toContain('role="tablist"');
     expect(html).toContain("data-session-tab-id");
     expect(html).toContain("findFirstAttemptIdForSessionGroup");
+    expect(html).toContain("const buildAgentChannelSidebarGroups = function buildAgentChannelSidebarGroups");
     expect(html).toContain("const buildSessionSidebarInstanceId = function buildSessionSidebarInstanceId");
+    expect(html).toContain("grid-template-columns: fit-content(864px) minmax(340px, 1fr);");
+    expect(html).toContain("justify-content: start;");
+    expect(html).toContain(
+      "grid-template-columns: 120px minmax(260px, 320px) minmax(320px, 380px);",
+    );
+    expect(html).toContain(".session-browser > * {");
+    expect(html).toContain("min-width: 0;");
+    expect(html).toContain("text-overflow: ellipsis;");
+    expect(html).toContain("white-space: nowrap;");
+    expect(html).toContain(".session-tab-title {");
+    expect(html).toContain("overflow-wrap: anywhere;");
+    expect(html).toContain("white-space: normal;");
     expect(html).not.toContain("formatCostPairInline(session)");
     expect(html).not.toContain("formatCostPairInline(activeSession)");
     expect(html).not.toContain("formatSidebarTime(session.updatedAt)");
     expect(html).not.toContain("formatSidebarTime(activeSession.updatedAt)");
     expect(html).not.toContain("session.updatedAt].join(\"|\")");
-    expect(html).not.toContain("session.updatedAt,");
+    expect(html).toContain("String(session.instances.length)");
   });
 
   it("allows long sessionKey subtitles to wrap in the session panel", () => {
