@@ -5,6 +5,9 @@ on:
     tags:
       - "v*"
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
@@ -14,13 +17,13 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: pnpm/action-setup@v4
         with:
           version: 10
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: pnpm
@@ -44,29 +47,91 @@ jobs:
       id-token: write
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: pnpm/action-setup@v4
         with:
           version: 10
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
 
+      - run: npm install -g npm@latest
+      - run: npm --version
       - run: pnpm install --frozen-lockfile
       - run: npm publish --provenance
 
   publish-clawhub:
     needs: check
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write
-    uses: openclaw/clawhub/.github/workflows/package-publish.yml@main
-    with:
-      dry_run: false
-    secrets:
-      clawhub_token: ${{ secrets.CLAWHUB_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.10
+
+      - uses: actions/checkout@v6
+        with:
+          repository: openclaw/clawhub
+          ref: main
+          path: clawhub-source
+
+      - name: Install ClawHub CLI dependencies
+        working-directory: clawhub-source
+        run: bun install --frozen-lockfile
+
+      - name: Write ClawHub config
+        env:
+          CLAWHUB_TOKEN: ${{ secrets.CLAWHUB_TOKEN }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          token = os.environ["CLAWHUB_TOKEN"].strip()
+          if not token:
+              raise SystemExit("CLAWHUB_TOKEN is required for tag-triggered ClawHub publishes")
+
+          path = Path(os.environ["RUNNER_TEMP"]) / "clawhub-config.json"
+          path.write_text(
+              json.dumps(
+                  {
+                      "registry": "https://clawhub.ai",
+                      "token": token,
+                  },
+                  indent=2,
+              )
+              + "\n",
+              encoding="utf-8",
+          )
+          print(path)
+          PY
+          echo "CLAWHUB_CONFIG_PATH=$RUNNER_TEMP/clawhub-config.json" >> "$GITHUB_ENV"
+
+      - name: Publish to ClawHub
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_SHA: ${{ github.sha }}
+          GITHUB_REF: ${{ github.ref }}
+        working-directory: clawhub-source
+        run: |
+          bun packages/clawhub/src/cli.ts package publish "${GITHUB_REPOSITORY}@${GITHUB_SHA}" \
+            --site https://clawhub.ai \
+            --registry https://clawhub.ai \
+            --json \
+            --tags latest \
+            --source-ref "${GITHUB_REF}" \
+            --manual-override-reason "GitHub Actions push publish via CLAWHUB_TOKEN" \
+            | tee "$RUNNER_TEMP/package-publish.json"
