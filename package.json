@@ -1,6 +1,6 @@
 {
   "name": "openclaw-run-observer",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "type": "module",
   "description": "Capture OpenClaw run inputs, outputs, usage, and context, persist recent attempts, and inspect them in a live local viewer.",
   "license": "MIT",
@@ -39,6 +39,7 @@
   "scripts": {
     "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
     "build": "pnpm run clean && tsc -p tsconfig.build.json",
+    "clawhub:stage": "node ./scripts/prepare-clawhub-package.mjs",
     "dev": "node ./scripts/dev.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",

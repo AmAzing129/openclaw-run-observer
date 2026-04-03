@@ -1,0 +1,8 @@
+src/
+scripts/
+test/
+AGENTS.md
+pnpm-lock.yaml
+tsconfig.json
+tsconfig.build.json
+vitest.config.ts
