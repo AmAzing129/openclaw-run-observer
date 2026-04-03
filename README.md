@@ -20,6 +20,58 @@ exposes a local viewer for inspecting the full request and response trail for ea
 - Token usage, duration, completion status, and error details
 - Stored run-attempt snapshots for recent runs, including live updates as new attempts arrive
 
+## Cost model
+
+The viewer intentionally shows two cost values for the same run. They are not
+duplicates, and they answer different questions:
+
+- `reported cost` is the cost reported by the model provider in assistant
+  message `usage.cost` fields. Run Observer prefers summing assistant-message
+  costs for the current run slice, and falls back to the last assistant payload
+  when that is the only place the provider exposed cost.
+- `estimated cost` is computed locally from token usage buckets
+  (`input`, `output`, `cacheRead`, and `cacheWrite`) multiplied by the plugin's
+  best available per-million-token pricing table.
+
+Use the reported value as the closest approximation of the provider's billed
+amount. Use the estimated value as a local fallback, a debugging aid, and a way
+to keep cost visibility when the provider does not report billing data.
+
+### Why the numbers can differ
+
+- Providers can round, bundle, discount, or otherwise post-process billing in
+  ways that are not visible from raw token counts alone.
+- The estimate depends on the pricing catalog available on the local machine at
+  capture time.
+- Some providers expose token counts but omit cost, or expose cost on only part
+  of the message trail.
+- Cache-read and cache-write billing can vary by provider, and missing pricing
+  data for a used bucket suppresses the estimate instead of guessing.
+
+### Estimated pricing lookup order
+
+When the plugin computes `estimated cost`, it resolves model pricing in this
+order:
+
+1. OpenClaw's local `models.json` cost data in the state directory.
+2. The plugin/runtime config model pricing.
+3. A cached OpenRouter pricing catalog, with a best-effort remote refresh when
+   needed.
+
+If no complete pricing entry is found for the token buckets used by the run, the
+viewer leaves `estimated cost` as `n/a`.
+
+### How the UI reads
+
+- The compact cost badge uses `reported(estimated)` format.
+  Example: `$0.0042($0.0040)`.
+- The run detail panel breaks the pair into `Run reported cost` and
+  `Run estimated cost`.
+- If only `reported cost` exists, treat it as authoritative and assume the
+  plugin could not resolve a matching price table.
+- If only `estimated cost` exists, treat it as a best-effort approximation and
+  assume the provider did not report billing data for that run.
+
 ## Install
 
 This guide assumes OpenClaw is already installed.

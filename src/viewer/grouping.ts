@@ -86,6 +86,20 @@ export function buildSidebarRunGroupId(
 export function buildSessionSidebarGroups(
   runs: RunObserverRunSummary[],
 ): RunObserverSidebarSessionGroup[] {
+  const knownSessionKeyChannels = new Set([
+    "discord",
+    "telegram",
+    "tui",
+    "weixin",
+    "wechat",
+    "whatsapp",
+    "slack",
+    "signal",
+    "googlechat",
+    "imessage",
+    "irc",
+    "line",
+  ]);
   const normalizeText = (value: unknown): string =>
     typeof value === "string" ? value.trim() : "";
   const readKnownUsd = (value: unknown): number | undefined =>
@@ -102,22 +116,49 @@ export function buildSessionSidebarGroups(
     const parts = normalized.split(":").filter(Boolean);
     return parts.length >= 2 ? parts.slice(0, 2).join(":") : normalized;
   };
+  const deriveChannelLabelFromSessionKey = (sessionKey: string): string => {
+    const normalized = normalizeText(sessionKey).toLowerCase();
+    if (!normalized.startsWith("agent:")) return "";
+    const parts = normalized.split(":").filter(Boolean);
+    const route = normalizeText(parts[2]);
+    if (!route) return "";
+    if (knownSessionKeyChannels.has(route)) {
+      return route;
+    }
+    const routePrefix = route.match(/^[a-z][a-z0-9]*/i)?.[0] || "";
+    return knownSessionKeyChannels.has(routePrefix) ? routePrefix : "";
+  };
   const getAgentLabel = (
     run: Pick<RunObserverRunSummary, "agentId" | "sessionKey">,
   ): string =>
     normalizeText(run.agentId) ||
     deriveAgentLabelFromSessionKey(run.sessionKey || "");
   const getChannelLabel = (
-    run: Pick<RunObserverRunSummary, "messageProvider" | "channelId">,
+    run: Pick<
+      RunObserverRunSummary,
+      "messageProvider" | "channelId" | "sessionKey"
+    >,
   ): string => {
     const provider = normalizeText(run.messageProvider);
     const channel = normalizeText(run.channelId);
+    const sessionKeyChannel = deriveChannelLabelFromSessionKey(run.sessionKey || "");
+    const normalizedProvider = provider.toLowerCase();
+    const normalizedChannel = channel.toLowerCase();
+    const shouldPreferSessionKeyChannel =
+      sessionKeyChannel &&
+      (normalizedProvider === "webchat" ||
+        normalizedChannel === "webchat" ||
+        normalizedProvider === "unknown" ||
+        normalizedChannel === "unknown");
+    if (shouldPreferSessionKeyChannel) {
+      return sessionKeyChannel;
+    }
     if (provider && channel && channel !== provider) {
       return /^[a-z0-9._:-]{1,24}$/i.test(channel)
         ? provider + " / " + channel
         : provider;
     }
-    return provider || channel;
+    return provider || channel || sessionKeyChannel;
   };
   const getSessionLabel = (
     run: Pick<RunObserverRunSummary, "agentId" | "sessionKey">,

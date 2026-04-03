@@ -5,6 +5,9 @@ export const LOBEHUB_ICONS_PNG_LIGHT_CDN_BASE =
 export const CHANNEL_ICON_MAP: Record<string, string> = {
   discord: "discord",
   telegram: "telegram",
+  tui: "ghostty",
+  weixin: "wechat",
+  wechat: "wechat",
   whatsapp: "whatsapp",
   slack: "slack",
   signal: "signal",

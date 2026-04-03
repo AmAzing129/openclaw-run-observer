@@ -74,8 +74,45 @@ export function renderRunObserverClientScript(params: {
         detailStats: document.getElementById("detail-stats"),
         detailTabs: document.getElementById("detail-tabs"),
         connectionState: document.getElementById("connection-state"),
+        connectionStateLabel: document.getElementById("connection-state-label"),
         refreshButton: document.getElementById("refresh-button"),
       };
+
+      const CONNECTION_STATE_META = {
+        connecting: {
+          label: "sync",
+          title: "Connecting to live updates",
+        },
+        live: {
+          label: "live",
+          title: "Receiving live updates",
+        },
+        reconnecting: {
+          label: "retry",
+          title: "Reconnecting to live updates",
+        },
+        error: {
+          label: "error",
+          title: "Live updates unavailable",
+        },
+      };
+
+      function setConnectionState(stateName, title) {
+        const fallback = CONNECTION_STATE_META.error;
+        const nextState = CONNECTION_STATE_META[stateName] ? stateName : "error";
+        const meta = CONNECTION_STATE_META[nextState] || fallback;
+        const nextTitle = title || meta.title;
+        if (nodes.connectionState instanceof HTMLElement) {
+          nodes.connectionState.dataset.state = nextState;
+          nodes.connectionState.title = nextTitle;
+          nodes.connectionState.setAttribute("aria-label", nextTitle);
+        }
+        if (nodes.connectionStateLabel instanceof HTMLElement) {
+          nodes.connectionStateLabel.textContent = meta.label;
+        }
+      }
+
+      setConnectionState("connecting");
 
       function switchTab(tab) {
         state.activeTab = tab;
@@ -90,6 +127,28 @@ export function renderRunObserverClientScript(params: {
           switchTab(this.getAttribute("data-tab") || "input");
         });
       }
+
+      nodes.detailBody.addEventListener("click", async (event) => {
+        const target = event.target instanceof Element ? event.target.closest("button") : null;
+        if (!(target instanceof HTMLButtonElement) || !nodes.detailBody.contains(target)) {
+          return;
+        }
+
+        if (target.classList.contains("copy-block-btn")) {
+          event.preventDefault();
+          event.stopPropagation();
+          await handleCopyButtonClick(target);
+          return;
+        }
+
+        if (target.classList.contains("prompt-expand-btn")) {
+          var block = target.closest(".prompt-block");
+          if (!block) return;
+          var isCollapsed = block.classList.contains("collapsed");
+          block.classList.toggle("collapsed", !isCollapsed);
+          target.textContent = isCollapsed ? "Show less" : "Show more";
+        }
+      });
 
       nodes.runs.addEventListener("click", async (event) => {
         const target = event.target instanceof Element ? event.target.closest("button") : null;
@@ -294,7 +353,7 @@ export function renderRunObserverClientScript(params: {
         if (costs.reportedCostUsd === undefined && costs.estimatedCostUsd === undefined) {
           return "";
         }
-        return "Current run only. Reported: " +
+        return "Reported: " +
           formatCostValueOrNa(costs.reportedCostUsd) +
           " | Estimated: " +
           formatCostValueOrNa(costs.estimatedCostUsd);
@@ -303,16 +362,24 @@ export function renderRunObserverClientScript(params: {
       function renderCostBreakdownCallout(run) {
         const usage = run && run.usage ? run.usage : {};
         const costs = readCostValues(usage);
-        const lines = [
-          '<div><strong>Run reported cost:</strong> ' + escapeInline(formatCostValueOrNa(costs.reportedCostUsd)) + "</div>",
-          '<div><strong>Run estimated cost:</strong> ' + escapeInline(formatCostValueOrNa(costs.estimatedCostUsd)) + "</div>",
-          "<div><strong>Scope:</strong> current run only</div>",
-        ];
         const pricingRates =
           costs.estimatedCostUsd !== undefined
             ? formatPricingRates(usage.estimatedPricingUsdPerMillion)
             : "";
-        return '<div class="callout cost-callout">' +
+        const copyTextParts = [
+          "Run reported cost: " + formatCostValueOrNa(costs.reportedCostUsd),
+          "Run estimated cost: " + formatCostValueOrNa(costs.estimatedCostUsd),
+        ];
+        if (pricingRates) {
+          copyTextParts.push("Pricing rates: " + pricingRates);
+        }
+        const lines = [
+          '<div><strong>Run reported cost:</strong> ' + escapeInline(formatCostValueOrNa(costs.reportedCostUsd)) + "</div>",
+          '<div><strong>Run estimated cost:</strong> ' + escapeInline(formatCostValueOrNa(costs.estimatedCostUsd)) + "</div>",
+        ];
+        return '<div class="callout cost-callout" data-copy-block>' +
+          '<pre class="copy-source-hidden" data-copy-source hidden>' + escapeInline(copyTextParts.join("\\n")) + '</pre>' +
+          '<div class="callout-head">' + renderCopyButton("cost breakdown") + '</div>' +
           lines.join("") +
           (pricingRates
             ? '<div class="callout-meta mono">' + escapeInline(pricingRates) + '</div>'
@@ -321,6 +388,144 @@ export function renderRunObserverClientScript(params: {
       }
 
       function syncFilterOptions() {}
+
+      function copyButtonStateText(label, stateName) {
+        var targetLabel = label || "block";
+        if (stateName === "pending") {
+          return "Copying " + targetLabel;
+        }
+        if (stateName === "success") {
+          return "Copied " + targetLabel;
+        }
+        if (stateName === "error") {
+          return "Copy failed for " + targetLabel + ", retry";
+        }
+        return "Copy " + targetLabel;
+      }
+
+      function copyButtonIconSvg(stateName) {
+        if (stateName === "success") {
+          return '<svg viewBox="0 0 16 16" focusable="false" aria-hidden="true"><path d="M3.75 8.25 6.5 11l5.75-6"/></svg>';
+        }
+        if (stateName === "error") {
+          return '<svg viewBox="0 0 16 16" focusable="false" aria-hidden="true"><path d="m8 2.5 5.5 10H2.5Z"/><path d="M8 6v3.5"/><path d="M8 11.75h.01"/></svg>';
+        }
+        return '<svg viewBox="0 0 16 16" focusable="false" aria-hidden="true"><rect x="5.25" y="2.75" width="7" height="9" rx="1.25"/><path d="M10.75 13.25H4.5a1.75 1.75 0 0 1-1.75-1.75V5.25"/></svg>';
+      }
+
+      function renderCopyButtonContents(label, stateName) {
+        var actionLabel = copyButtonStateText(label, stateName);
+        return '<span class="copy-block-icon" aria-hidden="true">' + copyButtonIconSvg(stateName) + '</span>' +
+          '<span class="visually-hidden">' + escapeInline(actionLabel) + '</span>';
+      }
+
+      function renderCopyButton(label) {
+        var normalizedLabel = label || "block";
+        var escapedLabel = escapeInline(normalizedLabel);
+        var actionLabel = copyButtonStateText(normalizedLabel, "idle");
+        return '<button class="copy-block-btn action-button mono" type="button" data-copy-state="idle" data-copy-label="' + escapedLabel + '" title="' + escapeInline(actionLabel) + '" aria-label="' + escapeInline(actionLabel) + '">' +
+          renderCopyButtonContents(normalizedLabel, "idle") +
+        '</button>';
+      }
+
+      function renderCopyableDetails(summary, bodyHtml, options) {
+        var attrs = [];
+        var classNames = [];
+        if (options && options.className) {
+          classNames.push(options.className);
+        }
+        classNames.push("copyable-details");
+        if (classNames.length > 0) {
+          attrs.push('class="' + escapeInline(classNames.join(" ")) + '"');
+        }
+        attrs.push("data-copy-block");
+        return '<details ' + attrs.join(" ") + '>' +
+          '<summary><span class="summary-title">' + escapeInline(summary) + '</span></summary>' +
+          '<div class="details-summary-actions">' + renderCopyButton(summary) + '</div>' +
+          bodyHtml +
+        '</details>';
+      }
+
+      function getCopySourceText(button) {
+        var block = button.closest("[data-copy-block]");
+        if (!block) return "";
+        var source = block.querySelector("[data-copy-source]");
+        if (!source) {
+          return block.textContent || "";
+        }
+        if (source instanceof HTMLTextAreaElement || source instanceof HTMLInputElement) {
+          return source.value;
+        }
+        return source.textContent || "";
+      }
+
+      async function writeTextToClipboard(text) {
+        if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+          await navigator.clipboard.writeText(text);
+          return;
+        }
+
+        var textarea = document.createElement("textarea");
+        textarea.value = text;
+        textarea.setAttribute("readonly", "");
+        textarea.style.position = "fixed";
+        textarea.style.opacity = "0";
+        textarea.style.left = "-9999px";
+        document.body.appendChild(textarea);
+        textarea.focus();
+        textarea.select();
+        textarea.setSelectionRange(0, textarea.value.length);
+        var copied = document.execCommand("copy");
+        document.body.removeChild(textarea);
+        if (!copied) {
+          throw new Error("Copy failed");
+        }
+      }
+
+      function setCopyButtonState(button, stateName) {
+        button.dataset.copyState = stateName;
+        var label = button.dataset.copyLabel || "block";
+        var actionLabel = copyButtonStateText(label, stateName);
+        button.title = actionLabel;
+        button.setAttribute("aria-label", actionLabel);
+        button.innerHTML = renderCopyButtonContents(label, stateName);
+      }
+
+      function scheduleCopyButtonReset(button) {
+        var previousTimer = Number(button.dataset.copyResetTimer || "0");
+        if (previousTimer) {
+          window.clearTimeout(previousTimer);
+        }
+        var timer = window.setTimeout(function () {
+          if (document.body.contains(button)) {
+            setCopyButtonState(button, "idle");
+          }
+        }, 1500);
+        button.dataset.copyResetTimer = String(timer);
+      }
+
+      async function handleCopyButtonClick(button) {
+        var text = getCopySourceText(button);
+        if (!text) {
+          setCopyButtonState(button, "error");
+          scheduleCopyButtonReset(button);
+          return;
+        }
+
+        button.disabled = true;
+        setCopyButtonState(button, "pending");
+
+        try {
+          await writeTextToClipboard(text);
+          setCopyButtonState(button, "success");
+        } catch (error) {
+          console.error("run-observer copy failed", error);
+          setCopyButtonState(button, "error");
+        } finally {
+          button.disabled = false;
+          scheduleCopyButtonReset(button);
+        }
+      }
 
       function escapeInline(value) {
         return String(value)
@@ -576,10 +781,11 @@ export function renderRunObserverClientScript(params: {
       function ensureRunBrowserLayout() {
         if (!nodes.runs.querySelector(".sidebar-agent-bar")) {
           nodes.runs.innerHTML =
-            '<div class="sidebar-agent-bar" role="tablist"></div>' +
+            '<div class="sidebar-agent-bar" role="tablist" aria-orientation="vertical"></div>' +
             '<div class="sidebar-sessions"></div>';
         }
         return {
+          root: nodes.runs,
           agentTabs: nodes.runs.querySelector(".sidebar-agent-bar"),
           sessionsContainer: nodes.runs.querySelector(".sidebar-sessions"),
         };
@@ -603,10 +809,12 @@ export function renderRunObserverClientScript(params: {
       }
 
       function renderAgentChannelTabs(layout, agentChannelGroups, activeAgentChannelGroup) {
-        if (!(layout.agentTabs instanceof HTMLElement)) {
+        if (!(layout.root instanceof HTMLElement) || !(layout.agentTabs instanceof HTMLElement)) {
           return;
         }
-        if (agentChannelGroups.length <= 1) {
+        const shouldShowAgentTabs = agentChannelGroups.length > 1;
+        layout.root.classList.toggle("has-agent-channel-tabs", shouldShowAgentTabs);
+        if (!shouldShowAgentTabs) {
           layout.agentTabs.style.display = "none";
         } else {
           layout.agentTabs.style.display = "";
@@ -616,14 +824,20 @@ export function renderRunObserverClientScript(params: {
           layout.agentTabs.innerHTML = agentChannelGroups
             .map((group) => {
               const active = group.id === activeAgentChannelGroup.id;
-              var tabIconsHtml = "";
+              var tabIconLabel = group.channelLabel || group.label || "?";
               var tabChannelIconSrc = channelIconUrl(group.channelLabel);
+              var tabIconHtml = '<span class="agent-channel-tab-icon">';
               if (tabChannelIconSrc) {
-                tabIconsHtml += '<img class="session-icon" src="' + escapeInline(tabChannelIconSrc) + '" alt="' + escapeInline(group.channelLabel) + '" title="' + escapeInline(group.channelLabel) + '" referrerpolicy="no-referrer" onerror="this.remove()" />';
+                tabIconHtml += '<img src="' + escapeInline(tabChannelIconSrc) + '" alt="' + escapeInline(tabIconLabel) + '" title="' + escapeInline(tabIconLabel) + '" referrerpolicy="no-referrer" onerror="this.remove()" />';
+              } else {
+                tabIconHtml += '<span class="agent-channel-tab-icon-fallback" aria-hidden="true">' + escapeInline(tabIconLabel.slice(0, 1).toUpperCase()) + '</span>';
               }
-              var tabIconsPrefix = tabIconsHtml ? '<span class="session-icons">' + tabIconsHtml + '</span>' : "";
+              tabIconHtml += "</span>";
               return '<button class="agent-channel-tab' + (active ? " active" : "") + '" type="button" role="tab" aria-selected="' + String(active) + '" data-agent-channel-tab-id="' + escapeInline(group.id) + '">' +
-                '<span class="agent-channel-tab-title">' + tabIconsPrefix + escapeInline(group.label) + '</span>' +
+                '<span class="agent-channel-tab-title">' +
+                  tabIconHtml +
+                  '<span class="agent-channel-tab-label">' + escapeInline(group.label) + '</span>' +
+                '</span>' +
               '</button>';
             })
             .join("");
@@ -811,7 +1025,13 @@ export function renderRunObserverClientScript(params: {
           statsHtml.push(costBreakdownCallout);
         }
         if (run.meta.error) {
-          statsHtml.push('<div class="callout error">Error: ' + escapeInline(run.meta.error) + "</div>");
+          statsHtml.push(
+            '<div class="callout error" data-copy-block>' +
+              '<pre class="copy-source-hidden" data-copy-source hidden>' + escapeInline(String(run.meta.error)) + '</pre>' +
+              '<div class="callout-head">' + renderCopyButton("error") + '</div>' +
+              'Error: ' + escapeInline(run.meta.error) +
+            "</div>",
+          );
         }
         nodes.detailStats.innerHTML = statsHtml.join("");
 
@@ -838,15 +1058,17 @@ export function renderRunObserverClientScript(params: {
           html += '<hr class="section-divider">';
           html += '<div class="debug-group-label">Raw Debug Data</div>';
 
-          html += '<details class="raw-debug">' +
-            '<summary>LLM Input Event (Raw JSON)</summary>' +
-            '<pre>' + escapeInline(JSON.stringify(llmInputEvent, null, 2)) + '</pre>' +
-          '</details>';
+          html += renderCopyableDetails(
+            "LLM Input Event (Raw JSON)",
+            '<pre data-copy-source>' + escapeInline(JSON.stringify(llmInputEvent, null, 2)) + '</pre>',
+            { className: "raw-debug" },
+          );
 
-          html += '<details class="raw-debug">' +
-            '<summary>LLM Input Context Snapshot</summary>' +
-            '<pre>' + escapeInline(JSON.stringify(llmInputCtx, null, 2)) + '</pre>' +
-          '</details>';
+          html += renderCopyableDetails(
+            "LLM Input Context Snapshot",
+            '<pre data-copy-source>' + escapeInline(JSON.stringify(llmInputCtx, null, 2)) + '</pre>',
+            { className: "raw-debug" },
+          );
         } else {
           var outputMessages = run.output.messages || [];
           var assistantTexts = run.output.assistantTexts || [];
@@ -855,9 +1077,14 @@ export function renderRunObserverClientScript(params: {
               '<summary>Assistant Texts (' + assistantTexts.length + ')</summary>' +
               '<div class="chat-list" style="padding: 10px 14px 14px;">' +
                 assistantTexts.map(function (text, i) {
+                  var renderedText = typeof text === "string" ? text : JSON.stringify(text, null, 2);
                   return '<div class="chat-msg role-assistant">' +
-                    '<span class="chat-role">assistant #' + (i + 1) + '</span>' +
-                    '<div class="chat-content">' + escapeInline(typeof text === "string" ? text : JSON.stringify(text, null, 2)) + '</div>' +
+                    '<div class="chat-msg-head" data-copy-block>' +
+                      '<pre class="copy-source-hidden" data-copy-source hidden>' + escapeInline(renderedText) + '</pre>' +
+                      '<span class="chat-role">assistant #' + (i + 1) + '</span>' +
+                      renderCopyButton("assistant #" + (i + 1)) +
+                    '</div>' +
+                    '<div class="chat-content">' + escapeInline(renderedText) + '</div>' +
                   '</div>';
                 }).join("") +
               '</div>' +
@@ -872,10 +1099,11 @@ export function renderRunObserverClientScript(params: {
             '</details>';
           }
 
-          html += '<details>' +
-            '<summary>Usage</summary>' +
-            '<pre>' + escapeInline(JSON.stringify(pickOpenClawUsageFields(run.usage), null, 2)) + '</pre>' +
-          '</details>';
+          html += renderCopyableDetails(
+            "Usage",
+            '<pre data-copy-source>' + escapeInline(JSON.stringify(pickOpenClawUsageFields(run.usage), null, 2)) + '</pre>',
+            {},
+          );
 
           if (assistantTexts.length === 0 && outputMessages.length === 0) {
             html += '<div class="empty">No output data yet.</div>';
@@ -883,25 +1111,18 @@ export function renderRunObserverClientScript(params: {
         }
 
         nodes.detailBody.innerHTML = html;
-
-        for (var btn of nodes.detailBody.querySelectorAll(".prompt-expand-btn")) {
-          btn.addEventListener("click", function () {
-            var block = this.closest(".prompt-block");
-            if (!block) return;
-            var isCollapsed = block.classList.contains("collapsed");
-            block.classList.toggle("collapsed", !isCollapsed);
-            this.textContent = isCollapsed ? "Show less" : "Show more";
-          });
-        }
       }
 
       function renderPromptSection(label, text) {
         if (!text) return "";
         var needsCollapse = text.length > 500 || text.split("\\n").length > 8;
-        return '<div>' +
-          '<div class="section-label">' + escapeInline(label) + '</div>' +
+        return '<div data-copy-block>' +
+          '<div class="section-header">' +
+            '<div class="section-label">' + escapeInline(label) + '</div>' +
+            renderCopyButton(label) +
+          '</div>' +
           '<div class="prompt-block' + (needsCollapse ? ' collapsed' : '') + '">' +
-            '<pre>' + escapeInline(text) + '</pre>' +
+            '<pre data-copy-source>' + escapeInline(text) + '</pre>' +
             (needsCollapse ? '<button class="prompt-expand-btn" type="button">Show more</button>' : '') +
           '</div>' +
         '</div>';
@@ -1023,6 +1244,10 @@ export function renderRunObserverClientScript(params: {
 
         var roleClass = "role-" + roleLower.replace(/[^a-z]/g, "");
         var extraClass = hasToolCalls ? " has-tool-calls" : "";
+        var copyText = content;
+        if (!copyText && msg) {
+          copyText = JSON.stringify(msg, null, 2);
+        }
 
         var badgeHtml = "";
         var toolResultDetail = "";
@@ -1041,8 +1266,16 @@ export function renderRunObserverClientScript(params: {
             toolCalls.length + ' tool call' + (toolCalls.length > 1 ? 's' : '') + '</span>';
         }
 
-        var html = '<div class="chat-msg ' + roleClass + extraClass + '">';
+        var html = '<div class="chat-msg ' + roleClass + extraClass + '"' + (copyText ? ' data-copy-block' : '') + '>';
+        if (copyText) {
+          html += '<pre class="copy-source-hidden" data-copy-source hidden>' + escapeInline(copyText) + '</pre>';
+        }
+        html += '<div class="chat-msg-head">';
         html += '<span class="chat-role">' + escapeInline(role) + badgeHtml + '</span>';
+        if (copyText) {
+          html += renderCopyButton(role);
+        }
+        html += '</div>';
 
         if (isToolResult) {
           var contentLen = content ? content.length : 0;
@@ -1266,17 +1499,15 @@ export function renderRunObserverClientScript(params: {
 
       function connectEvents() {
         if (!TOKEN) {
-          nodes.connectionState.textContent = "missing token";
-          nodes.connectionState.classList.add("error");
+          setConnectionState("error", "Missing viewer token");
           return;
         }
         const source = new EventSource(withToken(BASE_PATH + "/api/events"));
         source.addEventListener("open", () => {
-          nodes.connectionState.textContent = "live";
-          nodes.connectionState.classList.remove("error");
+          setConnectionState("live");
         });
         source.addEventListener("error", () => {
-          nodes.connectionState.textContent = "reconnecting";
+          setConnectionState("reconnecting");
         });
         source.addEventListener("upsert", async (event) => {
           try {
@@ -1297,8 +1528,7 @@ export function renderRunObserverClientScript(params: {
         }
         refreshRecentRuns()
           .catch((error) => {
-            nodes.connectionState.textContent = "refresh failed";
-            nodes.connectionState.classList.add("error");
+            setConnectionState("error", "Manual refresh failed");
             console.error("run-observer manual refresh failed", error);
           })
           .finally(() => {
@@ -1311,8 +1541,7 @@ export function renderRunObserverClientScript(params: {
       loadRecentRuns()
         .then(connectEvents)
         .catch((error) => {
-          nodes.connectionState.textContent = "error";
-          nodes.connectionState.classList.add("error");
+          setConnectionState("error", "Failed to load runs");
           nodes.runs.innerHTML = '<div class="callout error">Failed to load runs: ' + escapeInline(error.message || String(error)) + '</div>';
         });
 `;

@@ -27,7 +27,10 @@ export function renderRunObserverHtml(params: {
           <span class="topbar-title">${pluginName}</span>
         </div>
         <div class="topbar-right">
-          <span class="chip mono" id="connection-state" style="padding:4px 10px;font-size:11px;">connecting</span>
+          <span class="chip mono connection-indicator" id="connection-state" data-state="connecting" aria-live="polite" aria-label="Connecting to live updates" title="Connecting to live updates">
+            <span class="connection-dot" aria-hidden="true"></span>
+            <span class="connection-label" id="connection-state-label">sync</span>
+          </span>
           <button class="action-button mono" id="refresh-button" type="button" style="padding:5px 12px;font-size:12px;">Refresh</button>
         </div>
       </header>

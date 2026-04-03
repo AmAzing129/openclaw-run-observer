@@ -174,6 +174,83 @@ describe("buildAgentChannelSidebarGroups", () => {
       "agent:main:telegram:direct:123",
     ]);
   });
+
+  it("falls back to a sessionKey-derived channel when provider metadata is missing", () => {
+    const groups = buildAgentChannelSidebarGroups([
+      makeRunSummary({
+        runAttemptId: "run-tui:1",
+        runId: "run-tui",
+        agentId: "main",
+        messageProvider: "",
+        channelId: "",
+        sessionId: "session-tui",
+        sessionKey: "agent:main:tui-4f1b4460-af84-42e8-baab-0f1757081876",
+        updatedAt: 400,
+      }),
+    ]);
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0]).toMatchObject({
+      label: "main",
+      channelLabel: "tui",
+    });
+  });
+
+  it("does not treat internal session routes as delivery channels", () => {
+    const groups = buildAgentChannelSidebarGroups([
+      makeRunSummary({
+        runAttemptId: "run-main:1",
+        runId: "run-main",
+        agentId: "main",
+        messageProvider: "",
+        channelId: "",
+        sessionId: "session-main",
+        sessionKey: "agent:main:main",
+        updatedAt: 450,
+      }),
+      makeRunSummary({
+        runAttemptId: "run-subagent:1",
+        runId: "run-subagent",
+        agentId: "main",
+        messageProvider: "",
+        channelId: "",
+        sessionId: "session-subagent",
+        sessionKey: "agent:main:subagent:9d6b8634-3c4c-4bbd-bf41-0d4fa65c6d5f",
+        updatedAt: 460,
+      }),
+    ]);
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0]).toMatchObject({
+      label: "main",
+      channelLabel: "Unknown channel",
+    });
+    expect(groups[0]?.sessions.map((session) => session.routingLabel)).toEqual([
+      "agent:main:subagent:9d6b8634-3c4c-4bbd-bf41-0d4fa65c6d5f",
+      "agent:main:main",
+    ]);
+  });
+
+  it("prefers a sessionKey-derived channel over generic webchat metadata", () => {
+    const groups = buildAgentChannelSidebarGroups([
+      makeRunSummary({
+        runAttemptId: "run-webchat-tui:1",
+        runId: "run-webchat-tui",
+        agentId: "main",
+        messageProvider: "webchat",
+        channelId: "webchat",
+        sessionId: "session-webchat-tui",
+        sessionKey: "agent:main:tui-4f1b4460-af84-42e8-baab-0f1757081876",
+        updatedAt: 500,
+      }),
+    ]);
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0]).toMatchObject({
+      label: "main",
+      channelLabel: "tui",
+    });
+  });
 });
 
 describe("renderRunObserverHtml", () => {
@@ -197,6 +274,10 @@ describe("renderRunObserverHtml", () => {
 
     expect(html).toContain('const BASE_PATH = "/plugins/run-observer";');
     expect(html).toContain('const TOKEN = params.get("token") || "";');
+    expect(html).toContain('id="connection-state-label">sync</span>');
+    expect(html).toContain('const CONNECTION_STATE_META = {');
+    expect(html).toContain('function setConnectionState(stateName, title) {');
+    expect(html).toContain('setConnectionState("connecting");');
     expect(html).toContain('url.searchParams.set("token", TOKEN);');
     expect(html).toContain(
       'const payload = await fetchJson(BASE_PATH + "/api/run-attempt/" + encodeURIComponent(runAttemptId));',
@@ -205,6 +286,9 @@ describe("renderRunObserverHtml", () => {
     expect(html).toContain(
       'const source = new EventSource(withToken(BASE_PATH + "/api/events"));',
     );
+    expect(html).toContain('setConnectionState("live");');
+    expect(html).toContain('setConnectionState("reconnecting");');
+    expect(html).toContain('setConnectionState("error", "Missing viewer token");');
   });
 
   it("embeds channel and provider icon mappings for session badges", () => {
@@ -219,6 +303,9 @@ describe("renderRunObserverHtml", () => {
     );
     expect(html).toContain('"discord":"discord"');
     expect(html).toContain('"telegram":"telegram"');
+    expect(html).toContain('"tui":"ghostty"');
+    expect(html).toContain('"weixin":"wechat"');
+    expect(html).toContain('"wechat":"wechat"');
     expect(html).toContain('"openai":"openai"');
     expect(html).toContain('"vercel":"vercel"');
     expect(html).toContain('"doubao":"bytedance-color"');
@@ -229,7 +316,8 @@ describe("renderRunObserverHtml", () => {
       'return LOBEHUB_ICONS_PNG_LIGHT_CDN_BASE + "/" + encodeURIComponent(slug) + ".png";',
     );
     expect(html).toContain('referrerpolicy="no-referrer" onerror="this.remove()"');
-    expect(html).toContain("tabIconsPrefix + escapeInline(group.label)");
+    expect(html).toContain('class="agent-channel-tab-icon"');
+    expect(html).toContain('class="agent-channel-tab-label"');
   });
 
   it("avoids rerendering the full run list when switching between already visible runs", () => {
@@ -250,11 +338,24 @@ describe("renderRunObserverHtml", () => {
       pluginName: "Run Observer",
     });
 
+    expect(html).toContain(".topbar {");
+    expect(html).toContain("z-index: 30;");
+    expect(html).toContain(".sidebar.has-agent-channel-tabs {");
+    expect(html).toContain(".sidebar-agent-bar {");
+    expect(html).toContain("grid-template-columns: 92px minmax(0, 1fr);");
+    expect(html).toContain("flex-direction: column;");
+    expect(html).toContain("border-right: 1px solid var(--line);");
+    expect(html).toContain("position: relative;");
+    expect(html).toContain(".sidebar-sessions {");
+    expect(html).toContain("min-height: 0;");
+    expect(html).toContain("min-width: 0;");
+    expect(html).toContain("scrollbar-gutter: stable;");
     expect(html).toContain("activeAgentChannelGroupId");
     expect(html).toContain("activeSessionGroupId");
     expect(html).toContain('class="sidebar-agent-bar"');
     expect(html).toContain("data-agent-channel-tab-id");
     expect(html).toContain('role="tablist"');
+    expect(html).toContain('aria-orientation="vertical"');
     expect(html).toContain("data-session-tab-id");
     expect(html).toContain("findFirstAttemptIdForSessionGroup");
     expect(html).toContain("const buildAgentChannelSidebarGroups = function buildAgentChannelSidebarGroups");
@@ -265,6 +366,7 @@ describe("renderRunObserverHtml", () => {
     expect(html).toContain("white-space: nowrap;");
     expect(html).toContain(".session-tab-title {");
     expect(html).toContain("overflow-wrap: anywhere;");
+    expect(html).toContain(".agent-channel-tab-label {");
     expect(html).not.toContain("formatCostPairInline(session)");
     expect(html).not.toContain("formatCostPairInline(activeSession)");
     expect(html).not.toContain("formatSidebarTime(session.updatedAt)");
@@ -334,7 +436,7 @@ describe("renderRunObserverHtml", () => {
     expect(html).not.toContain('"R " + formatCostValueOrNa(costs.reportedCostUsd)');
   });
 
-  it("labels detail cost copy as current-run cost only", () => {
+  it("renders detail cost copy without extra scope messaging", () => {
     const html = renderRunObserverHtml({
       basePath: "/plugins/run-observer",
       pluginName: "Run Observer",
@@ -342,8 +444,35 @@ describe("renderRunObserverHtml", () => {
 
     expect(html).toContain('<div><strong>Run reported cost:</strong> ');
     expect(html).toContain('<div><strong>Run estimated cost:</strong> ');
-    expect(html).toContain("<div><strong>Scope:</strong> current run only</div>");
-    expect(html).toContain('return "Current run only. Reported: " +');
+    expect(html).not.toContain("<div><strong>Scope:</strong> current run only</div>");
+    expect(html).toContain('return "Reported: " +');
+    expect(html).not.toContain('return "Current run only. Reported: " +');
+  });
+
+  it("adds copy buttons to detail blocks with clipboard fallback support", () => {
+    const html = renderRunObserverHtml({
+      basePath: "/plugins/run-observer",
+      pluginName: "Run Observer",
+    });
+
+    expect(html).toContain('class="copy-block-btn action-button mono"');
+    expect(html).toContain('class="copy-block-icon"');
+    expect(html).toContain('class="visually-hidden"');
+    expect(html).toContain("data-copy-block");
+    expect(html).toContain("data-copy-label");
+    expect(html).toContain("data-copy-source");
+    expect(html).toContain('class="details-summary-actions"');
+    expect(html).toContain("'<summary><span class=\"summary-title\">' + escapeInline(summary) + '</span></summary>' +");
+    expect(html).toContain("'<div class=\"details-summary-actions\">' + renderCopyButton(summary) + '</div>' +");
+    expect(html).not.toContain('<summary><span class="summary-row">');
+    expect(html).toContain("nodes.detailBody.addEventListener(\"click\", async (event) => {");
+    expect(html).toContain("await handleCopyButtonClick(target);");
+    expect(html).toContain("function copyButtonIconSvg(stateName) {");
+    expect(html).toContain("button.innerHTML = renderCopyButtonContents(label, stateName);");
+    expect(html).toContain("async function writeTextToClipboard(text) {");
+    expect(html).toContain("navigator.clipboard.writeText(text);");
+    expect(html).toContain("document.execCommand(\"copy\")");
+    expect(html).toContain("button.setAttribute(\"aria-label\", actionLabel);");
   });
 
   it("shows run attempt id in the detail subtitle instead of sessionKey", () => {
