@@ -1,8 +1,8 @@
 import {
+  buildLocalIconSvgMap,
   CHANNEL_ICON_MAP,
-  LOBEHUB_ICONS_PNG_LIGHT_CDN_BASE,
+  OPENCLAW_MAIN_ICON_SLUG,
   PROVIDER_ICON_MAP,
-  SIMPLE_ICONS_CDN_BASE,
 } from "./assets.js";
 import {
   buildAgentChannelSidebarGroups,
@@ -15,7 +15,10 @@ import {
 
 export function renderRunObserverClientScript(params: {
   basePath: string;
+  localIconSvgs?: Record<string, string>;
 }): string {
+  const serializeForInlineScript = (value: unknown): string =>
+    JSON.stringify(value).replaceAll("<", "\\u003C");
   const pickOpenClawUsageFieldsSource = pickOpenClawUsageFields.toString();
   const buildSessionSidebarGroupIdSource =
     buildSessionSidebarGroupId.toString();
@@ -25,15 +28,18 @@ export function renderRunObserverClientScript(params: {
   const buildSessionSidebarGroupsSource = buildSessionSidebarGroups.toString();
   const buildAgentChannelSidebarGroupsSource =
     buildAgentChannelSidebarGroups.toString();
-  const simpleIconsCdnBaseSource = JSON.stringify(SIMPLE_ICONS_CDN_BASE);
-  const lobehubIconsPngLightCdnBaseSource = JSON.stringify(
-    LOBEHUB_ICONS_PNG_LIGHT_CDN_BASE,
+  const localIconSvgsSource = serializeForInlineScript(
+    params.localIconSvgs ?? buildLocalIconSvgMap(),
   );
-  const channelIconMapSource = JSON.stringify(CHANNEL_ICON_MAP);
-  const providerIconMapSource = JSON.stringify(PROVIDER_ICON_MAP);
+  const openclawMainIconSlugSource = serializeForInlineScript(
+    OPENCLAW_MAIN_ICON_SLUG,
+  );
+  const channelIconMapSource = serializeForInlineScript(CHANNEL_ICON_MAP);
+  const providerIconMapSource = serializeForInlineScript(PROVIDER_ICON_MAP);
+  const basePathSource = serializeForInlineScript(params.basePath);
 
   return `
-      const BASE_PATH = ${JSON.stringify(params.basePath)};
+      const BASE_PATH = ${basePathSource};
       const params = new URLSearchParams(window.location.search);
       const TOKEN = params.get("token") || "";
       const pickOpenClawUsageFields = ${pickOpenClawUsageFieldsSource};
@@ -535,7 +541,8 @@ export function renderRunObserverClientScript(params: {
           .replaceAll('"', "&quot;");
       }
 
-      var LOBEHUB_ICONS_PNG_LIGHT_CDN_BASE = ${lobehubIconsPngLightCdnBaseSource};
+      var LOCAL_ICON_SVGS = ${localIconSvgsSource};
+      var OPENCLAW_MAIN_ICON_SLUG = ${openclawMainIconSlugSource};
       var PROVIDER_ICON_MAP = ${providerIconMapSource};
 
       function resolveProviderSlug(provider, model) {
@@ -551,32 +558,77 @@ export function renderRunObserverClientScript(params: {
         return "";
       }
 
-      function providerIconUrl(slug) {
+      function localIconSvg(slug) {
         if (!slug) return "";
-        return lobehubPngIconUrl(slug);
+        return LOCAL_ICON_SVGS[slug] || "";
       }
 
-      var SIMPLE_ICONS_CDN_BASE = ${simpleIconsCdnBaseSource};
+      function providerIconSvg(slug) {
+        if (!slug) return "";
+        return localIconSvg(slug);
+      }
+
+      function renderProviderIcon(provider, model, className) {
+        var slug = resolveProviderSlug(provider, model);
+        var svg = providerIconSvg(slug);
+        if (!svg) return "";
+        var label = [provider, model].filter(Boolean).join(" / ") || provider || model || "Provider";
+        return '<span class="' + escapeInline(className || "provider-icon") + '" title="' + escapeInline(label) + '" aria-hidden="true">' + svg + "</span>";
+      }
+
+      function renderDetailTitle(provider, model) {
+        var iconHtml = renderProviderIcon(provider, model, "detail-provider-icon");
+        var titleText = model || provider || "Run detail";
+        return '<span class="detail-title-row">' +
+          iconHtml +
+          '<span>' + escapeInline(titleText) + '</span>' +
+        "</span>";
+      }
+
       var CHANNEL_ICON_MAP = ${channelIconMapSource};
 
-      function simpleIconUrl(slug) {
-        if (!slug) return "";
-        return SIMPLE_ICONS_CDN_BASE + "/" + encodeURIComponent(slug);
-      }
-
-      function lobehubPngIconUrl(slug) {
-        if (!slug) return "";
-        return LOBEHUB_ICONS_PNG_LIGHT_CDN_BASE + "/" + encodeURIComponent(slug) + ".png";
-      }
-
-      function channelIconUrl(channelLabel) {
+      function resolveChannelIconSlug(channelLabel) {
         var normalized = (channelLabel || "").toLowerCase().trim();
         for (var key in CHANNEL_ICON_MAP) {
           if (normalized.indexOf(key) !== -1) {
-            return simpleIconUrl(CHANNEL_ICON_MAP[key]);
+            return CHANNEL_ICON_MAP[key];
           }
         }
         return "";
+      }
+
+      function channelIconSvg(channelLabel) {
+        return localIconSvg(resolveChannelIconSlug(channelLabel));
+      }
+
+      function isMainConversationLabel(value) {
+        var normalized = (value || "").trim();
+        if (!normalized) return false;
+        if (normalized.toLowerCase() === "main") return true;
+        return /^agent:[^:]+:main$/i.test(normalized);
+      }
+
+      function isMainConversationSession(session) {
+        if (!session) return false;
+        return (
+          isMainConversationLabel(session.routingLabel) ||
+          isMainConversationLabel(session.sessionKey) ||
+          isMainConversationLabel(session.sessionId)
+        );
+      }
+
+      function agentChannelIconSvg(group) {
+        var channelSvg = channelIconSvg(group && group.channelLabel);
+        if (channelSvg) return channelSvg;
+        return group && group.sessions && group.sessions.some(isMainConversationSession)
+          ? localIconSvg(OPENCLAW_MAIN_ICON_SLUG)
+          : "";
+      }
+
+      function sessionIconSvg(session) {
+        return isMainConversationSession(session)
+          ? localIconSvg(OPENCLAW_MAIN_ICON_SLUG)
+          : "";
       }
 
       function formatAttemptLabel(run) {
@@ -825,10 +877,10 @@ export function renderRunObserverClientScript(params: {
             .map((group) => {
               const active = group.id === activeAgentChannelGroup.id;
               var tabIconLabel = group.channelLabel || group.label || "?";
-              var tabChannelIconSrc = channelIconUrl(group.channelLabel);
+              var tabChannelIconSvg = agentChannelIconSvg(group);
               var tabIconHtml = '<span class="agent-channel-tab-icon">';
-              if (tabChannelIconSrc) {
-                tabIconHtml += '<img src="' + escapeInline(tabChannelIconSrc) + '" alt="' + escapeInline(tabIconLabel) + '" title="' + escapeInline(tabIconLabel) + '" referrerpolicy="no-referrer" onerror="this.remove()" />';
+              if (tabChannelIconSvg) {
+                tabIconHtml += tabChannelIconSvg;
               } else {
                 tabIconHtml += '<span class="agent-channel-tab-icon-fallback" aria-hidden="true">' + escapeInline(tabIconLabel.slice(0, 1).toUpperCase()) + '</span>';
               }
@@ -855,6 +907,7 @@ export function renderRunObserverClientScript(params: {
             const isActive = session.id === activeSession.id;
             var sessionTitle = session.routingLabel || session.sessionKey || session.sessionId || "Session";
             var sessionSubtitle = session.instances.length + " session" + (session.instances.length === 1 ? "" : "s");
+            var sessionTabIconSvg = sessionIconSvg(session);
 
             var instancesHtml = "";
             if (isActive) {
@@ -867,9 +920,13 @@ export function renderRunObserverClientScript(params: {
                         const attempt = runGroup.attempts[0];
                         const selected = attempt.runAttemptId === state.selectedRunAttemptId ? " active" : "";
                         const recordTitle = formatSidebarTimeWithStatus(runGroup.updatedAt, attempt.status);
+                        const recordProviderIcon = renderProviderIcon(attempt.provider, attempt.model, "record-provider-icon");
                         return '<button class="record' + selected + '" type="button" data-run-attempt-id="' + escapeInline(attempt.runAttemptId) + '">' +
-                          '<div class="record-head">' +
-                            '<div class="record-title" title="' + escapeInline(recordTitle) + '">' + escapeInline(recordTitle) + '</div>' +
+                          '<div class="record-head' + (recordProviderIcon ? " has-provider-icon" : "") + '">' +
+                            recordProviderIcon +
+                            '<div class="record-head-text">' +
+                              '<div class="record-title" title="' + escapeInline(recordTitle) + '">' + escapeInline(recordTitle) + '</div>' +
+                            '</div>' +
                           '</div>' +
                         '</button>';
                       }
@@ -880,23 +937,33 @@ export function renderRunObserverClientScript(params: {
                           const selected = attempt.runAttemptId === state.selectedRunAttemptId ? " active" : "";
                           const title = formatAttemptLabel(attempt);
                           const subtitle = formatSidebarTimeWithStatus(attempt.updatedAt, attempt.status);
+                          const attemptProviderIcon = renderProviderIcon(attempt.provider, attempt.model, "record-provider-icon");
                           return '<button class="record' + selected + '" type="button" data-run-attempt-id="' + escapeInline(attempt.runAttemptId) + '">' +
-                            '<div class="record-head">' +
-                              '<div class="record-title" title="' + escapeInline(title) + '">' + escapeInline(title) + '</div>' +
-                              '<div class="record-subtitle mono" title="' + escapeInline(subtitle) + '">' + escapeInline(subtitle) + '</div>' +
+                            '<div class="record-head' + (attemptProviderIcon ? " has-provider-icon" : "") + '">' +
+                              attemptProviderIcon +
+                              '<div class="record-head-text">' +
+                                '<div class="record-title" title="' + escapeInline(title) + '">' + escapeInline(title) + '</div>' +
+                                '<div class="record-subtitle mono" title="' + escapeInline(subtitle) + '">' + escapeInline(subtitle) + '</div>' +
+                              '</div>' +
                             '</div>' +
                           '</button>';
                         })
                         .join("");
                       const latestAttempt = runGroup.attempts[0];
                       const runTitle = formatSidebarTimeWithStatus(runGroup.updatedAt, latestAttempt && latestAttempt.status);
+                      const runProviderIcon = latestAttempt
+                        ? renderProviderIcon(latestAttempt.provider, latestAttempt.model, "run-provider-icon")
+                        : "";
 
                       return '<section class="run-group' + (runExpanded ? " expanded" : "") + '">' +
                         '<button class="run-toggle" type="button" data-run-group-id="' + escapeInline(runGroup.id) + '" aria-expanded="' + String(runExpanded) + '">' +
                           '<div class="run-toggle-row">' +
                             '<span class="run-caret mono" aria-hidden="true">&gt;</span>' +
-                            '<div>' +
-                              '<div class="run-title" title="' + escapeInline(runTitle) + '">' + escapeInline(runTitle) + '</div>' +
+                            '<div class="run-toggle-main' + (runProviderIcon ? " has-provider-icon" : "") + '">' +
+                              runProviderIcon +
+                              '<div>' +
+                                '<div class="run-title" title="' + escapeInline(runTitle) + '">' + escapeInline(runTitle) + '</div>' +
+                              '</div>' +
                             '</div>' +
                           '</div>' +
                         '</button>' +
@@ -928,7 +995,12 @@ export function renderRunObserverClientScript(params: {
             return '<div class="session-section' + (isActive ? " active" : "") + '">' +
               '<button class="session-tab" type="button" data-session-tab-id="' + escapeInline(session.id) + '">' +
                 '<div class="session-tab-row">' +
-                  '<div class="session-tab-title mono">' + escapeInline(sessionTitle) + '</div>' +
+                  '<div class="session-tab-heading">' +
+                    (sessionTabIconSvg
+                      ? '<span class="session-tab-icon" aria-hidden="true">' + sessionTabIconSvg + '</span>'
+                      : '') +
+                    '<div class="session-tab-title mono">' + escapeInline(sessionTitle) + '</div>' +
+                  '</div>' +
                   '<div class="session-tab-subtitle mono">' + escapeInline(sessionSubtitle) + '</div>' +
                 '</div>' +
               '</button>' +
@@ -994,7 +1066,7 @@ export function renderRunObserverClientScript(params: {
           return;
         }
 
-        nodes.detailTitle.textContent = [run.context.provider, run.context.model].filter(Boolean).join(" / ");
+        nodes.detailTitle.innerHTML = renderDetailTitle(run.context.provider, run.context.model);
         nodes.detailSubtitle.textContent = run.runAttemptId;
 
         var status = run.meta.status || "inflight";

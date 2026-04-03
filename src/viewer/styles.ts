@@ -176,7 +176,7 @@ export const RUN_OBSERVER_VIEWER_STYLES = `
         flex-shrink: 0;
       }
 
-      .agent-channel-tab-icon img {
+      .agent-channel-tab-icon svg {
         width: 20px;
         height: 20px;
         display: block;
@@ -245,8 +245,32 @@ export const RUN_OBSERVER_VIEWER_STYLES = `
 
       .session-tab-row {
         display: grid;
-        gap: 2px;
+        gap: 4px;
         min-width: 0;
+      }
+
+      .session-tab-heading {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr);
+        gap: 8px;
+        align-items: start;
+        min-width: 0;
+      }
+
+      .session-tab-icon {
+        width: 16px;
+        height: 16px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        margin-top: 1px;
+      }
+
+      .session-tab-icon svg {
+        width: 16px;
+        height: 16px;
+        display: block;
       }
 
       .session-tab-title {
@@ -393,6 +417,18 @@ export const RUN_OBSERVER_VIEWER_STYLES = `
         align-items: start;
       }
 
+      .run-toggle-main {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        gap: 8px;
+        align-items: start;
+        min-width: 0;
+      }
+
+      .run-toggle-main.has-provider-icon {
+        grid-template-columns: auto minmax(0, 1fr);
+      }
+
       .run-caret {
         display: inline-flex;
         align-items: center;
@@ -471,6 +507,16 @@ export const RUN_OBSERVER_VIEWER_STYLES = `
         align-items: center;
       }
 
+      .record-head.has-provider-icon {
+        grid-template-columns: auto minmax(0, 1fr);
+        gap: 8px;
+        align-items: start;
+      }
+
+      .record-head-text {
+        min-width: 0;
+      }
+
       .record-title {
         font-weight: 700;
         font-size: 11px;
@@ -487,19 +533,28 @@ export const RUN_OBSERVER_VIEWER_STYLES = `
         text-overflow: ellipsis;
       }
 
-      /* ── Session icons ── */
-
-      .session-icons {
+      .record-provider-icon,
+      .run-provider-icon,
+      .detail-provider-icon {
         display: inline-flex;
         align-items: center;
-        gap: 4px;
+        justify-content: center;
+        flex-shrink: 0;
       }
 
-      .session-icon {
+      .record-provider-icon,
+      .run-provider-icon {
         width: 14px;
         height: 14px;
-        flex-shrink: 0;
-        opacity: 0.7;
+        margin-top: 1px;
+      }
+
+      .record-provider-icon svg,
+      .run-provider-icon svg {
+        width: 14px;
+        height: 14px;
+        display: block;
+        opacity: 0.92;
       }
 
       /* ── Detail main area ── */
@@ -530,6 +585,24 @@ export const RUN_OBSERVER_VIEWER_STYLES = `
         font-family: "Iowan Old Style", "Palatino Linotype", serif;
         font-size: 18px;
         line-height: 1.2;
+      }
+
+      .detail-title-row {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+      }
+
+      .detail-provider-icon {
+        width: 20px;
+        height: 20px;
+      }
+
+      .detail-provider-icon svg {
+        width: 20px;
+        height: 20px;
+        display: block;
       }
 
       .detail-chips {

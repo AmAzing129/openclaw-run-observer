@@ -76,26 +76,43 @@ viewer leaves `estimated cost` as `n/a`.
 
 This guide assumes OpenClaw is already installed.
 
+### Install from ClawHub
+
 ```bash
-openclaw plugins install openclaw-run-observer
+openclaw plugins install clawhub:openclaw-run-observer
 ```
 
-Run Observer is currently published through npm. ClawHub packaging can be
-added later, but the normal user install flow today is the npm command above.
+This is the recommended install path when you want the registry-published
+ClawHub package explicitly.
+
+### Install from npm
+
+```bash
+openclaw plugins install npm:openclaw-run-observer
+```
+
+Use the explicit `npm:` prefix when you want to force npm resolution.
+
+Note: on newer OpenClaw versions, a bare package name such as
+`openclaw-run-observer` is checked against ClawHub first and only falls back to
+npm if ClawHub does not have that package or version. If you want the install
+source to be unambiguous, prefer either `clawhub:openclaw-run-observer` or
+`npm:openclaw-run-observer`.
 
 ## First Run
 
 After installing the plugin:
 
-1. Verify that the installed plugin was recorded as an npm install:
+1. Verify that the plugin is installed:
 
    ```bash
-   openclaw plugins info run-observer
+   openclaw plugins inspect run-observer
    ```
 
-   You should see an install block similar to:
-   - `Source: npm`
-   - `Spec: openclaw-run-observer`
+   If your OpenClaw build shows install metadata, it should reflect the source
+   you used:
+   - `clawhub:openclaw-run-observer` for a ClawHub install
+   - `npm:openclaw-run-observer` for an npm install
 
 2. Start the gateway:
 
@@ -126,8 +143,27 @@ After installing the plugin:
    A healthy local viewer should return `HTTP 200`.
 
 Note: if you are testing from a repository checkout that also contains a local
-folder named `openclaw-run-observer`, run the install command from a different
-directory so OpenClaw resolves the npm package instead of a local path.
+folder named `openclaw-run-observer`, prefer the explicit
+`clawhub:openclaw-run-observer` or `npm:openclaw-run-observer` install spec so
+OpenClaw does not confuse it with a local path.
+
+## Updating
+
+To update just this plugin:
+
+```bash
+openclaw plugins update run-observer
+```
+
+OpenClaw reuses the recorded install source. A plugin installed from ClawHub
+continues updating from ClawHub, and a plugin installed from npm continues
+updating from npm unless you reinstall it from a different source.
+
+To update all tracked plugins:
+
+```bash
+openclaw plugins update --all
+```
 
 ## Usage
 
@@ -188,13 +224,43 @@ pnpm run dev
 
 This expects `openclaw gateway restart` to work on your machine.
 
-## ClawHub Publish
+## Release
 
-This directory is prepared for native OpenClaw plugin publishing. Depending on
-your installed ClawHub CLI version, publish through either:
+This repository is set up to publish the package to both npm and ClawHub from a
+GitHub tag.
 
-- the ClawHub web UI by uploading this folder, a `.zip`, or a `.tgz`
-- a newer `clawhub package publish .` CLI flow when available
+Before the first automated release, configure:
 
-Before publishing, confirm that the package name and version in `package.json`
-match the release you want to ship.
+- npm trusted publishing for this repository and the workflow file
+  `.github/workflows/release.yml`
+- a GitHub Actions secret named `CLAWHUB_TOKEN`
+
+Typical release flow:
+
+1. Update the version in `package.json`.
+2. Run:
+
+   ```bash
+   pnpm run check
+   ```
+
+3. Commit the release:
+
+   ```bash
+   git add .
+   git commit -m "chore(release): prepare vX.Y.Z"
+   ```
+
+4. Create and push the matching tag:
+
+   ```bash
+   git tag vX.Y.Z
+   git push origin main --follow-tags
+   ```
+
+Pushing `vX.Y.Z` triggers `.github/workflows/release.yml`, which:
+
+- runs `pnpm run check`
+- verifies the tag matches `package.json`
+- publishes to npm with trusted publishing
+- publishes the same version to ClawHub

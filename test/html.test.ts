@@ -1,7 +1,12 @@
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   renderRunObserverHtml,
 } from "../src/html.js";
+import { buildLocalIconSvgMap } from "../src/viewer/assets.js";
+import { renderRunObserverClientScript } from "../src/viewer/client-script.js";
 import {
   buildAgentChannelSidebarGroups,
   buildSessionSidebarGroups,
@@ -253,6 +258,31 @@ describe("buildAgentChannelSidebarGroups", () => {
   });
 });
 
+describe("buildLocalIconSvgMap", () => {
+  it("accepts SVG files with an xml declaration and leading comments", () => {
+    const iconDirectory = mkdtempSync(
+      path.join(tmpdir(), "run-observer-viewer-icons-"),
+    );
+    const svg =
+      '<?xml version="1.0" encoding="UTF-8"?>\n<!-- generated asset -->\n<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><rect width="24" height="24" rx="6"/></svg>';
+
+    try {
+      writeFileSync(path.join(iconDirectory, "custom-icon.svg"), svg);
+
+      expect(
+        buildLocalIconSvgMap({
+          iconDirectory,
+          slugs: ["custom-icon"],
+        }),
+      ).toEqual({
+        "custom-icon": svg,
+      });
+    } finally {
+      rmSync(iconDirectory, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("renderRunObserverHtml", () => {
   it("renders the usage panel from filtered OpenClaw usage fields only", () => {
     const html = renderRunObserverHtml({
@@ -291,16 +321,15 @@ describe("renderRunObserverHtml", () => {
     expect(html).toContain('setConnectionState("error", "Missing viewer token");');
   });
 
-  it("embeds channel and provider icon mappings for session badges", () => {
+  it("embeds local channel and provider SVG mappings for session badges", () => {
     const html = renderRunObserverHtml({
       basePath: "/plugins/run-observer",
       pluginName: "Run Observer",
     });
 
-    expect(html).toContain('var SIMPLE_ICONS_CDN_BASE = "https://cdn.simpleicons.org";');
-    expect(html).toContain(
-      'var LOBEHUB_ICONS_PNG_LIGHT_CDN_BASE = "https://unpkg.com/@lobehub/icons-static-png@latest/light";',
-    );
+    expect(html).toContain("var LOCAL_ICON_SVGS = {");
+    expect(html).toContain('var OPENCLAW_MAIN_ICON_SLUG = "openclaw";');
+    expect(html).toContain('"openclaw":"\\u003Csvg');
     expect(html).toContain('"discord":"discord"');
     expect(html).toContain('"telegram":"telegram"');
     expect(html).toContain('"tui":"ghostty"');
@@ -310,14 +339,36 @@ describe("renderRunObserverHtml", () => {
     expect(html).toContain('"vercel":"vercel"');
     expect(html).toContain('"doubao":"bytedance-color"');
     expect(html).toContain('"01":"zeroone"');
-    expect(html).toContain("return lobehubPngIconUrl(slug);");
-    expect(html).toContain('return SIMPLE_ICONS_CDN_BASE + "/" + encodeURIComponent(slug);');
-    expect(html).toContain(
-      'return LOBEHUB_ICONS_PNG_LIGHT_CDN_BASE + "/" + encodeURIComponent(slug) + ".png";',
-    );
-    expect(html).toContain('referrerpolicy="no-referrer" onerror="this.remove()"');
+    expect(html).toContain("return LOCAL_ICON_SVGS[slug] || \"\";");
+    expect(html).toContain("return localIconSvg(slug);");
+    expect(html).not.toContain("simpleicons.org");
+    expect(html).not.toContain("@lobehub/icons-static-png");
+    expect(html).toContain("function renderProviderIcon(provider, model, className)");
     expect(html).toContain('class="agent-channel-tab-icon"');
     expect(html).toContain('class="agent-channel-tab-label"');
+    expect(html).toContain('class="session-tab-icon"');
+    expect(html).toContain('class="session-tab-heading"');
+    expect(html).toContain('renderProviderIcon(attempt.provider, attempt.model, "record-provider-icon")');
+    expect(html).toContain('renderProviderIcon(latestAttempt.provider, latestAttempt.model, "run-provider-icon")');
+    expect(html).toContain('renderProviderIcon(provider, model, "detail-provider-icon")');
+    expect(html).toContain(".record-provider-icon,");
+    expect(html).toContain(".run-provider-icon,");
+    expect(html).toContain(".detail-provider-icon {");
+    expect(html).toContain("function isMainConversationSession(session)");
+  });
+
+  it("escapes inline SVG payloads before embedding them in the client script", () => {
+    const script = renderRunObserverClientScript({
+      basePath: "/plugins/run-observer",
+      localIconSvgs: {
+        danger:
+          '<svg xmlns="http://www.w3.org/2000/svg"><desc></script><script>alert("x")</script></desc></svg>',
+      },
+    });
+
+    expect(script).toContain("var LOCAL_ICON_SVGS = {");
+    expect(script).toContain("\\u003C/script>");
+    expect(script).not.toContain("</script>");
   });
 
   it("avoids rerendering the full run list when switching between already visible runs", () => {
@@ -483,6 +534,8 @@ describe("renderRunObserverHtml", () => {
 
     expect(html).toContain('id="detail-subtitle"');
     expect(html).toContain("Select an attempt from the left pane.");
+    expect(html).toContain('class="detail-title-row"');
+    expect(html).toContain("nodes.detailTitle.innerHTML = renderDetailTitle(run.context.provider, run.context.model);");
     expect(html).toContain("nodes.detailSubtitle.textContent = run.runAttemptId;");
     expect(html).not.toContain("nodes.detailSubtitle.textContent = run.context.sessionKey || run.runId;");
     expect(html).not.toContain('id="run-attempt-id-chip"');
