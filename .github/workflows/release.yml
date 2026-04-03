@@ -60,7 +60,6 @@ jobs:
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
 
-      - run: npm install -g npm@latest
       - run: npm --version
       - run: pnpm install --frozen-lockfile
       - run: npm publish --provenance
