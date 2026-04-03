@@ -1,205 +1,142 @@
 # Run Observer
 
-Run Observer is a native OpenClaw observability plugin for debugging and inspecting agent runs. It
-records `llm_input`, `llm_output`, and `agent_end` events, persists recent run attempts, and
-exposes a local viewer for inspecting the full request and response trail for each run.
+> 🔍 Native OpenClaw observability plugin — track every token dollar precisely, and pinpoint exactly why your agent went silent.
 
-## What it does
+## Why Run Observer?
 
-- Captures LLM inputs, outputs, and final run status for each attempt
-- Persists recent attempts with agent, session, trigger, channel, workspace, and model context
-- Tracks token usage, reported cost, and estimated cost when usage data is available
-- Streams new runs into a local browser UI for live inspection
-- Serves a loopback-only, token-protected viewer backed by plugin-owned HTTP routes
-- Exposes CLI helpers to print or rotate the viewer access token
+### 💰 Know Exactly What Every Run Costs
 
-## What you can inspect
+Ever wonder how much that agent run actually cost you? Run Observer shows **two cost perspectives** side by side so you never have to guess:
 
-- System prompts, prompts, history messages, and assistant output
-- Run metadata such as provider, model, agent, session, trigger, and channel context
-- Token usage, duration, completion status, and error details
-- Stored run-attempt snapshots for recent runs, including live updates as new attempts arrive
+- **Reported Cost** — the billing amount your model provider returns in `usage.cost`. This is the closest number to what actually shows up on your invoice.
+- **Estimated Cost** — computed locally from token usage buckets (`input`, `output`, `cacheRead`, `cacheWrite`) multiplied by the best available pricing table. When your provider doesn't report billing data, this keeps cost visibility alive.
 
-## Cost model
+The viewer displays both in a compact `$0.0042($0.0040)` badge, letting you cross-check and catch billing anomalies at a glance. Why might they differ? Providers can round, bundle, or discount charges in ways raw token counts alone can't capture, and the local estimate depends on the pricing catalog available at capture time.
 
-The viewer intentionally shows two cost values for the same run. They are not
-duplicates, and they answer different questions:
+### 🔧 Pinpoint Why Your Agent Stopped Responding
 
-- `reported cost` is the cost reported by the model provider in assistant
-  message `usage.cost` fields. Run Observer prefers summing assistant-message
-  costs for the current run slice, and falls back to the last assistant payload
-  when that is the only place the provider exposed cost.
-- `estimated cost` is computed locally from token usage buckets
-  (`input`, `output`, `cacheRead`, and `cacheWrite`) multiplied by the plugin's
-  best available per-million-token pricing table.
+Sometimes OpenClaw just... stops. No error, no output, just silence. Instead of guessing, you need to see exactly what happened inside the engine.
 
-Use the reported value as the closest approximation of the provider's billed
-amount. Use the estimated value as a local fallback, a debugging aid, and a way
-to keep cost visibility when the provider does not report billing data.
+Run Observer captures the full input/output chain for every run: system prompt → user messages → model response (or the absence of one). When your agent goes silent, you can immediately see:
 
-### Why the numbers can differ
+- Did the request actually get sent?
+- What did the model return — or did it return nothing at all?
+- Error details, completion status, duration, and all run metadata
 
-- Providers can round, bundle, discount, or otherwise post-process billing in
-  ways that are not visible from raw token counts alone.
-- The estimate depends on the pricing catalog available on the local machine at
-  capture time.
-- Some providers expose token counts but omit cost, or expose cost on only part
-  of the message trail.
-- Cache-read and cache-write billing can vary by provider, and missing pricing
-  data for a used bucket suppresses the estimate instead of guessing.
-
-### Estimated pricing lookup order
-
-When the plugin computes `estimated cost`, it resolves model pricing in this
-order:
-
-1. OpenClaw's local `models.json` cost data in the state directory.
-2. The plugin/runtime config model pricing.
-3. A cached OpenRouter pricing catalog, with a best-effort remote refresh when
-   needed.
-
-If no complete pricing entry is found for the token buckets used by the run, the
-viewer leaves `estimated cost` as `n/a`.
-
-### How the UI reads
-
-- The compact cost badge uses `reported(estimated)` format.
-  Example: `$0.0042($0.0040)`.
-- The run detail panel breaks the pair into `Run reported cost` and
-  `Run estimated cost`.
-- If only `reported cost` exists, treat it as authoritative and assume the
-  plugin could not resolve a matching price table.
-- If only `estimated cost` exists, treat it as a best-effort approximation and
-  assume the provider did not report billing data for that run.
+Stop guessing. Start debugging with full visibility.
 
 ## Install
 
-This guide assumes OpenClaw is already installed.
+Assumes OpenClaw is already installed.
 
-### Install from ClawHub
+### From ClawHub (recommended)
 
 ```bash
 openclaw plugins install clawhub:openclaw-run-observer
 ```
 
-This is the recommended install path when you want the registry-published
-ClawHub package explicitly.
-
-### Install from npm
+### From npm
 
 ```bash
 openclaw plugins install npm:openclaw-run-observer
 ```
 
-Use the explicit `npm:` prefix when you want to force npm resolution.
+> **Note:** On newer OpenClaw versions, a bare package name is checked against ClawHub first and falls back to npm if not found. Use the `clawhub:` or `npm:` prefix if you want the source to be unambiguous.
 
-Note: on newer OpenClaw versions, a bare package name such as
-`openclaw-run-observer` is checked against ClawHub first and only falls back to
-npm if ClawHub does not have that package or version. If you want the install
-source to be unambiguous, prefer either `clawhub:openclaw-run-observer` or
-`npm:openclaw-run-observer`.
+## Quick Start
 
-## First Run
-
-After installing the plugin:
-
-1. Verify that the plugin is installed:
+1. **Verify the plugin is installed:**
 
    ```bash
    openclaw plugins inspect run-observer
    ```
 
-   If your OpenClaw build shows install metadata, it should reflect the source
-   you used:
-   - `clawhub:openclaw-run-observer` for a ClawHub install
-   - `npm:openclaw-run-observer` for an npm install
-
-2. Start the gateway:
+2. **Start the gateway:**
 
    ```bash
    openclaw gateway run --bind loopback --allow-unconfigured
    ```
 
-   If you already have the gateway running elsewhere, restart that existing
-   instance instead:
+   If the gateway is already running, restart it instead:
 
    ```bash
    openclaw gateway restart
    ```
 
-3. Print the local viewer URL:
+3. **Open the local viewer:**
 
    ```bash
    openclaw run-observer url
    ```
 
-4. Optional quick verification from the same machine:
+   Open the printed URL in a browser on the same machine running OpenClaw. The viewer updates live as new runs arrive.
+
+4. **(Optional) Quick health check:**
 
    ```bash
    URL="$(openclaw run-observer url)"
    curl --max-time 5 -s -o /tmp/run-observer.html -w 'HTTP %{http_code}\n' "$URL"
    ```
 
-   A healthy local viewer should return `HTTP 200`.
-
-Note: if you are testing from a repository checkout that also contains a local
-folder named `openclaw-run-observer`, prefer the explicit
-`clawhub:openclaw-run-observer` or `npm:openclaw-run-observer` install spec so
-OpenClaw does not confuse it with a local path.
-
-## Updating
-
-To update just this plugin:
-
-```bash
-openclaw plugins update run-observer
-```
-
-OpenClaw reuses the recorded install source. A plugin installed from ClawHub
-continues updating from ClawHub, and a plugin installed from npm continues
-updating from npm unless you reinstall it from a different source.
-
-To update all tracked plugins:
-
-```bash
-openclaw plugins update --all
-```
+   `HTTP 200` means everything is working.
 
 ## Usage
 
-Once the plugin is installed and the gateway is running, use
-`openclaw run-observer url` to print the local viewer URL with the current
-access token. Open that URL in a browser on the same machine that is running
-OpenClaw.
+Once installed and the gateway is running, the viewer automatically captures all runs. In the browser you get:
 
-The viewer updates live as new run attempts are captured.
+- **Sidebar** — all runs listed in reverse chronological order with model, agent, channel icons, and cost badges
+- **Detail panel** — expand any run to see the full prompt chain, model response, token usage, duration, and error details
+- **Live updates** — new runs are pushed to the page in real time, no manual refresh needed
 
-Use this command to rotate the token:
+### Rotate the access token
 
 ```bash
 openclaw run-observer rotate-token
 ```
 
-Rotating the token invalidates previously shared viewer links.
+Rotating the token invalidates any previously shared viewer links.
 
-## Access model
+## Updating
 
-- The viewer only accepts loopback connections
-- Requests must include the current Run Observer access token
-- The `url` command prints a tokenized local URL, and `rotate-token` replaces that token
+```bash
+openclaw plugins update run-observer
+```
+
+Or update all plugins at once:
+
+```bash
+openclaw plugins update --all
+```
+
+## Cost Model Details
+
+### Why two cost numbers?
+
+| | Reported Cost | Estimated Cost |
+|---|---|---|
+| Source | Provider-returned `usage.cost` | Local token counts × pricing table |
+| Accuracy | Closest to your actual invoice | Best-effort approximation |
+| Use case | Day-to-day cost tracking | Fallback when provider omits billing data |
+
+### Estimated pricing lookup order
+
+1. OpenClaw's local `models.json` cost data in the state directory
+2. Plugin/runtime config model pricing
+3. Cached OpenRouter pricing catalog (with best-effort remote refresh when needed)
+
+If no matching pricing entry is found for the token buckets used by the run, estimated cost shows as `n/a`.
+
+## Security & Privacy
+
+- The viewer only accepts loopback connections — not reachable from outside your machine
+- All requests must include the current Run Observer access token
+- Captured prompts, outputs, and context stay on the local machine under the OpenClaw state directory
 - The session list may fetch channel icons from `https://cdn.simpleicons.org` and provider icons from `https://unpkg.com/@lobehub/icons-static-png@latest/light`; the viewer does not send telemetry
-
-## Privacy notes
-
-- This repository contains source code only; it does not include captured run data, access tokens, or local state
-- At runtime, captured prompts, outputs, and context stay on the local machine under the OpenClaw state directory
-- The startup log omits the access token; use `openclaw run-observer url` when you explicitly want the tokenized local viewer link
+- This repository contains source code only — no runtime data, access tokens, or local state
 
 ## Compatibility
 
-This package declares compatibility through the `openclaw.compat` metadata in
-`package.json`. The published package should track the OpenClaw plugin API and
-minimum gateway version listed there.
+This package declares compatibility through the `openclaw.compat` metadata in `package.json`. The published package should track the OpenClaw plugin API and minimum gateway version listed there.
 
 ## Development
 
@@ -214,44 +151,28 @@ Build output is emitted to `dist/`:
 pnpm run build
 ```
 
-For local plugin development, this repo also includes a watch loop that rebuilds
-on TypeScript changes and restarts the configured OpenClaw gateway service after
-each successful build:
+For local plugin development, a watch loop rebuilds on TypeScript changes and restarts the gateway after each successful build:
 
 ```bash
 pnpm run dev
 ```
 
-This expects `openclaw gateway restart` to work on your machine.
-
 ## Release
 
-This repository is set up to publish the package to both npm and ClawHub from a
-GitHub tag.
-
-Release flow:
-
-1. Update the version in `package.json`.
-2. Run:
-
-   ```bash
-   pnpm run check
-   ```
-
-3. Commit the release:
+1. Update the version in `package.json`
+2. Run `pnpm run check`
+3. Commit:
 
    ```bash
    git add .
    git commit -m "chore(release): prepare vX.Y.Z"
    ```
 
-4. Create and push the matching tag:
+4. Create and push the tag:
 
    ```bash
    git tag -a vX.Y.Z -m "vX.Y.Z"
    git push origin main --follow-tags
    ```
 
-The tag must match the version in `package.json`. Pushing `vX.Y.Z` triggers
-`.github/workflows/release.yml`, which runs `pnpm run check` again and then
-publishes the same version to both npm and ClawHub.
+Pushing `vX.Y.Z` triggers CI to publish to both npm and ClawHub.

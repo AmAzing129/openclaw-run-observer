@@ -1,24 +1,26 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-`src/` contains the TypeScript plugin runtime. `index.ts` wires OpenClaw hooks, services, HTTP routes, and CLI registration. Core persistence lives in `observer.ts`; viewer and transport logic live in `http.ts` and `html.ts`; shared constants, types, pricing, and helpers live in `constants.ts`, `types.ts`, `pricing.ts`, and `utils.ts`. `test/` mirrors the runtime with Vitest specs such as `observer.test.ts` and `http.test.ts`. Package metadata is split between `package.json` and `openclaw.plugin.json`. Build output is generated into `dist/`.
+`src/` contains the TypeScript plugin. `src/index.ts` wires OpenClaw hooks, services, HTTP routes, and CLI registration. Runtime state and persistence live in `observer.ts`; pricing logic is split across `pricing.ts`, `openclaw-local-pricing.ts`, and `openrouter-pricing.ts`; viewer rendering and browser assets live in `html.ts`, `http.ts`, and `src/viewer/`. Tests sit in `test/*.test.ts` and generally mirror runtime areas such as `observer`, `http`, `cli`, and `pricing`. Static SVG assets live in `viewer-icons/`. `dist/` is generated output and should not be edited by hand.
 
 ## Build, Test, and Development Commands
-Use Node `>=22` and `pnpm`.
+Use Node `>=22` with `pnpm`.
 
-- `pnpm install`: install dependencies.
-- `pnpm run typecheck`: run strict TypeScript checks with no emit.
-- `pnpm test`: run the Vitest suite once in the Node test environment.
-- `pnpm run build`: remove `dist/` and compile the package with `tsc -p tsconfig.build.json`.
-- `pnpm run check`: run typecheck, tests, and build in the same order used for local verification.
-
-For a quick contributor sanity check, run `pnpm run check` before opening a PR.
+- `pnpm install` installs dependencies.
+- `pnpm run typecheck` runs strict TypeScript checks without emitting files.
+- `pnpm test` runs the Vitest suite once in the Node environment.
+- `pnpm run build` deletes `dist/` and compiles the package with `tsc -p tsconfig.build.json`.
+- `pnpm run check` is the main local gate and should pass before a PR.
+- `pnpm run dev` watches TypeScript sources and restarts the OpenClaw gateway after successful rebuilds.
 
 ## Coding Style & Naming Conventions
-Follow the existing style in `src/`: 2-space indentation, double quotes, semicolons, and ESM imports with explicit `.js` extensions for internal modules. Keep `strict` TypeScript expectations intact; prefer explicit types for public shapes and treat optional fields carefully. Use `PascalCase` for classes, `camelCase` for functions and variables, and descriptive filenames like `observer.ts` or `pricing.ts` that map to a single concern.
+Follow the existing TypeScript style: 2-space indentation, double quotes, semicolons, ESM syntax, and explicit `.js` extensions in internal imports. Keep modules single-purpose and prefer descriptive filenames such as `observer.ts` or `client-script.ts`. Use `PascalCase` for classes and exported types, `camelCase` for functions and variables, and preserve the repo’s strict compiler settings (`strict`, `exactOptionalPropertyTypes`, `noUncheckedIndexedAccess`).
 
 ## Testing Guidelines
-Tests use Vitest and live under `test/**/*.test.ts` as configured in `vitest.config.ts`. Add or update tests alongside any runtime change, especially around persistence, HTTP responses, CLI behavior, and pricing calculations. Prefer deterministic tests that create temporary directories and clean them up, following the pattern in `test/observer.test.ts`. There is no separate coverage gate in the repo, so changed behavior should be covered directly by targeted assertions.
+Vitest is configured in `vitest.config.ts` to pick up `test/**/*.test.ts`. Add or update tests with every behavior change, especially around persisted run attempts, HTTP responses, CLI output, and pricing calculations. Prefer deterministic tests that use temporary directories and explicit assertions, following `test/observer.test.ts`. There is no coverage threshold in CI, so target the changed path directly.
 
 ## Commit & Pull Request Guidelines
-Current history follows Conventional Commit style, for example `feat: import run observer plugin` and `chore(release): publish 0.0.1`. Keep commits focused and use prefixes such as `feat`, `fix`, `test`, or `chore`. PRs should include a short description of the behavior change, note any OpenClaw compatibility impact, and list the verification command you ran, usually `pnpm run check`. Include screenshots only when UI or viewer output changes.
+Recent history mostly uses Conventional Commit prefixes such as `feat:`, `docs:`, `chore(ci):`, and `chore(release):`; keep new commits focused and similarly named. PRs should include a short behavior summary, note any OpenClaw compatibility or release impact, and list the verification command you ran, usually `pnpm run check`. Include screenshots only when the local viewer UI changes.
+
+## Security & Release Notes
+Do not commit captured run data, tokens, or other local state. Tag-based releases are defined in `.github/workflows/release.yml`; tags must match the `package.json` version in the form `vX.Y.Z`.
