@@ -230,7 +230,6 @@ describe("renderRunObserverHtml", () => {
     );
     expect(html).toContain('referrerpolicy="no-referrer" onerror="this.remove()"');
     expect(html).toContain("tabIconsPrefix + escapeInline(group.label)");
-    expect(html).toContain("titleIconsPrefix + escapeInline(activeSession.label)");
   });
 
   it("avoids rerendering the full run list when switching between already visible runs", () => {
@@ -253,25 +252,19 @@ describe("renderRunObserverHtml", () => {
 
     expect(html).toContain("activeAgentChannelGroupId");
     expect(html).toContain("activeSessionGroupId");
-    expect(html).toContain('class="agent-channel-tabs"');
+    expect(html).toContain('class="sidebar-agent-bar"');
     expect(html).toContain("data-agent-channel-tab-id");
     expect(html).toContain('role="tablist"');
     expect(html).toContain("data-session-tab-id");
     expect(html).toContain("findFirstAttemptIdForSessionGroup");
     expect(html).toContain("const buildAgentChannelSidebarGroups = function buildAgentChannelSidebarGroups");
     expect(html).toContain("const buildSessionSidebarInstanceId = function buildSessionSidebarInstanceId");
-    expect(html).toContain("grid-template-columns: fit-content(864px) minmax(340px, 1fr);");
-    expect(html).toContain("justify-content: start;");
-    expect(html).toContain(
-      "grid-template-columns: 120px minmax(260px, 320px) minmax(320px, 380px);",
-    );
-    expect(html).toContain(".session-browser > * {");
+    expect(html).toContain("grid-template-columns: 420px minmax(0, 1fr);");
     expect(html).toContain("min-width: 0;");
     expect(html).toContain("text-overflow: ellipsis;");
     expect(html).toContain("white-space: nowrap;");
     expect(html).toContain(".session-tab-title {");
     expect(html).toContain("overflow-wrap: anywhere;");
-    expect(html).toContain("white-space: normal;");
     expect(html).not.toContain("formatCostPairInline(session)");
     expect(html).not.toContain("formatCostPairInline(activeSession)");
     expect(html).not.toContain("formatSidebarTime(session.updatedAt)");
@@ -280,16 +273,13 @@ describe("renderRunObserverHtml", () => {
     expect(html).toContain("String(session.instances.length)");
   });
 
-  it("allows long sessionKey subtitles to wrap in the session panel", () => {
+  it("allows long sessionKey subtitles to wrap in the session tab", () => {
     const html = renderRunObserverHtml({
       basePath: "/plugins/run-observer",
       pluginName: "Run Observer",
     });
 
-    expect(html).toContain(".session-panel-subtitle {");
-    expect(html).toContain("overflow: visible;");
-    expect(html).toContain("text-overflow: clip;");
-    expect(html).toContain("white-space: normal;");
+    expect(html).toContain(".session-tab-title {");
     expect(html).toContain("overflow-wrap: anywhere;");
   });
 

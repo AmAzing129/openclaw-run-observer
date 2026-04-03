@@ -21,35 +21,30 @@ export function renderRunObserverHtml(params: {
   </head>
   <body>
     <div class="page">
+      <header class="topbar">
+        <div class="topbar-left">
+          <span class="topbar-eyebrow">OpenClaw</span>
+          <span class="topbar-title">${pluginName}</span>
+        </div>
+        <div class="topbar-right">
+          <span class="chip mono" id="connection-state" style="padding:4px 10px;font-size:11px;">connecting</span>
+          <button class="action-button mono" id="refresh-button" type="button" style="padding:5px 12px;font-size:12px;">Refresh</button>
+        </div>
+      </header>
+
       <div class="shell">
-        <section class="panel">
-          <div class="panel-header">
-            <div style="display:flex;justify-content:space-between;align-items:center;">
-              <div class="eyebrow">OpenClaw Plugin</div>
-              <div style="display:flex;gap:8px;align-items:center;">
-                <span class="chip mono" id="connection-state" style="padding:4px 10px;font-size:11px;">connecting</span>
-                <button class="action-button mono" id="refresh-button" type="button" style="padding:5px 12px;font-size:12px;">Refresh</button>
-              </div>
+        <aside class="sidebar" id="runs"></aside>
+
+        <main class="detail-main">
+          <div class="detail-header">
+            <div class="detail-header-text">
+              <h2 id="detail-title">Waiting for data</h2>
+              <div class="subtitle mono" id="detail-subtitle">Select a run from the sidebar.</div>
             </div>
-            <h1>${pluginName}</h1>
-          </div>
-
-          <div class="runs" id="runs"></div>
-        </section>
-
-        <section class="panel detail">
-          <div class="panel-header">
-            <div class="toolbar">
-              <div>
-                <div class="eyebrow">Live Detail</div>
-                <h2 id="detail-title" style="margin: 10px 0 0;">Waiting for data</h2>
-                <div class="subtitle mono" id="detail-subtitle">Select an attempt from the left pane.</div>
-              </div>
-              <div class="right">
-                <span class="chip mono status-chip" id="status-chip" style="display:none;"></span>
-                <span class="chip mono" id="cost-chip" style="display:none;"></span>
-                <span class="chip mono" id="duration-chip" style="display:none;"></span>
-              </div>
+            <div class="detail-chips">
+              <span class="chip mono status-chip" id="status-chip" style="display:none;"></span>
+              <span class="chip mono" id="cost-chip" style="display:none;"></span>
+              <span class="chip mono" id="duration-chip" style="display:none;"></span>
             </div>
           </div>
           <div class="detail-stats" id="detail-stats"></div>
@@ -60,7 +55,7 @@ export function renderRunObserverHtml(params: {
           <div class="detail-body" id="detail-body">
             <div class="empty">No runs yet.</div>
           </div>
-        </section>
+        </main>
       </div>
     </div>
 

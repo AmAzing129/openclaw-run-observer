@@ -574,23 +574,14 @@ export function renderRunObserverClientScript(params: {
       }
 
       function ensureRunBrowserLayout() {
-        if (!nodes.runs.querySelector(".session-browser")) {
+        if (!nodes.runs.querySelector(".sidebar-agent-bar")) {
           nodes.runs.innerHTML =
-            '<div class="session-browser">' +
-              '<div class="agent-channel-tabs" role="tablist" aria-orientation="vertical"></div>' +
-              '<div class="session-tabs" role="tablist" aria-orientation="vertical"></div>' +
-              '<div class="session-panel" role="tabpanel">' +
-                '<div class="session-panel-header"></div>' +
-                '<div class="session-panel-body"></div>' +
-              '</div>' +
-            '</div>';
+            '<div class="sidebar-agent-bar" role="tablist"></div>' +
+            '<div class="sidebar-sessions"></div>';
         }
         return {
-          agentTabs: nodes.runs.querySelector(".agent-channel-tabs"),
-          tabs: nodes.runs.querySelector(".session-tabs"),
-          panel: nodes.runs.querySelector(".session-panel"),
-          panelHeader: nodes.runs.querySelector(".session-panel-header"),
-          panelBody: nodes.runs.querySelector(".session-panel-body"),
+          agentTabs: nodes.runs.querySelector(".sidebar-agent-bar"),
+          sessionsContainer: nodes.runs.querySelector(".sidebar-sessions"),
         };
       }
 
@@ -615,6 +606,11 @@ export function renderRunObserverClientScript(params: {
         if (!(layout.agentTabs instanceof HTMLElement)) {
           return;
         }
+        if (agentChannelGroups.length <= 1) {
+          layout.agentTabs.style.display = "none";
+        } else {
+          layout.agentTabs.style.display = "";
+        }
         const signature = buildAgentChannelTabsSignature(agentChannelGroups);
         if (signature !== state.renderedAgentChannelTabsSignature) {
           layout.agentTabs.innerHTML = agentChannelGroups
@@ -627,10 +623,7 @@ export function renderRunObserverClientScript(params: {
               }
               var tabIconsPrefix = tabIconsHtml ? '<span class="session-icons">' + tabIconsHtml + '</span>' : "";
               return '<button class="agent-channel-tab' + (active ? " active" : "") + '" type="button" role="tab" aria-selected="' + String(active) + '" data-agent-channel-tab-id="' + escapeInline(group.id) + '">' +
-                '<div class="agent-channel-tab-row">' +
-                  '<div class="agent-channel-tab-title" title="' + escapeInline(group.label) + '">' + tabIconsPrefix + escapeInline(group.label) + '</div>' +
-                  '<div class="agent-channel-tab-subtitle mono" title="' + escapeInline(group.channelLabel) + '">' + escapeInline(group.channelLabel) + '</div>' +
-                '</div>' +
+                '<span class="agent-channel-tab-title">' + tabIconsPrefix + escapeInline(group.label) + '</span>' +
               '</button>';
             })
             .join("");
@@ -639,131 +632,96 @@ export function renderRunObserverClientScript(params: {
         updateAgentChannelTabSelection(activeAgentChannelGroup.id);
       }
 
-      function renderSessionTabs(layout, sessions, activeSession) {
-        if (!(layout.tabs instanceof HTMLElement)) {
+      function renderSidebarSessions(layout, sessions, activeSession) {
+        if (!(layout.sessionsContainer instanceof HTMLElement)) {
           return;
         }
-        const signature = buildSessionTabsSignature(sessions);
-        if (signature !== state.renderedSessionTabsSignature) {
-          layout.tabs.innerHTML = sessions
-            .map((session) => {
-              const active = session.id === activeSession.id;
-              var sessionTitle = session.routingLabel || session.sessionKey || session.sessionId || "Session key";
-              var sessionSubtitle = session.instances.length + " sessionId" + (session.instances.length === 1 ? "" : "s");
-              return '<button class="session-tab' + (active ? " active" : "") + '" type="button" role="tab" aria-selected="' + String(active) + '" data-session-tab-id="' + escapeInline(session.id) + '">' +
-                '<div class="session-tab-row">' +
-                  '<div class="session-tab-title mono" title="' + escapeInline(sessionTitle) + '">' + escapeInline(sessionTitle) + '</div>' +
-                  '<div class="session-tab-subtitle mono" title="' + escapeInline(sessionSubtitle) + '">' + escapeInline(sessionSubtitle) + '</div>' +
-                '</div>' +
-              '</button>';
-            })
-            .join("");
-          state.renderedSessionTabsSignature = signature;
-        }
-        updateSessionTabSelection(activeSession.id);
-      }
+        layout.sessionsContainer.innerHTML = sessions
+          .map((session) => {
+            const isActive = session.id === activeSession.id;
+            var sessionTitle = session.routingLabel || session.sessionKey || session.sessionId || "Session";
+            var sessionSubtitle = session.instances.length + " session" + (session.instances.length === 1 ? "" : "s");
 
-      function renderSessionPanelHeader(layout, activeAgentChannelGroup, activeSession) {
-        if (!(layout.panel instanceof HTMLElement) || !(layout.panelHeader instanceof HTMLElement)) {
-          return;
-        }
-        layout.panel.setAttribute("data-session-panel-id", activeSession.id);
-        const signature = buildSessionHeaderSignature(activeAgentChannelGroup, activeSession);
-        if (signature === state.renderedSessionHeaderSignature) {
-          return;
-        }
+            var instancesHtml = "";
+            if (isActive) {
+              instancesHtml = session.instances
+                .map((instance) => {
+                  const instanceExpanded = isSessionInstanceExpanded(instance.id);
+                  const instanceBody = instance.runs
+                    .map((runGroup) => {
+                      if (runGroup.attempts.length <= 1) {
+                        const attempt = runGroup.attempts[0];
+                        const selected = attempt.runAttemptId === state.selectedRunAttemptId ? " active" : "";
+                        const recordTitle = formatSidebarTimeWithStatus(runGroup.updatedAt, attempt.status);
+                        return '<button class="record' + selected + '" type="button" data-run-attempt-id="' + escapeInline(attempt.runAttemptId) + '">' +
+                          '<div class="record-head">' +
+                            '<div class="record-title" title="' + escapeInline(recordTitle) + '">' + escapeInline(recordTitle) + '</div>' +
+                          '</div>' +
+                        '</button>';
+                      }
 
-        var iconsHtml = "";
-        var chIconSrc = channelIconUrl(activeAgentChannelGroup.channelLabel);
-        if (chIconSrc) {
-          iconsHtml += '<img class="session-icon" src="' + escapeInline(chIconSrc) + '" alt="' + escapeInline(activeAgentChannelGroup.channelLabel) + '" title="' + escapeInline(activeAgentChannelGroup.channelLabel) + '" referrerpolicy="no-referrer" onerror="this.remove()" />';
-        }
-        var titleIconsPrefix = iconsHtml ? '<span class="session-icons">' + iconsHtml + '</span>' : '';
-        var routingSubtitle = activeSession.routingLabel
-          ? '<div class="session-panel-subtitle mono" title="' + escapeInline(activeSession.routingLabel) + '">' + escapeInline(activeSession.routingLabel) + '</div>'
-          : '';
+                      const runExpanded = isRunExpanded(runGroup.id);
+                      const attempts = runGroup.attempts
+                        .map((attempt) => {
+                          const selected = attempt.runAttemptId === state.selectedRunAttemptId ? " active" : "";
+                          const title = formatAttemptLabel(attempt);
+                          const subtitle = formatSidebarTimeWithStatus(attempt.updatedAt, attempt.status);
+                          return '<button class="record' + selected + '" type="button" data-run-attempt-id="' + escapeInline(attempt.runAttemptId) + '">' +
+                            '<div class="record-head">' +
+                              '<div class="record-title" title="' + escapeInline(title) + '">' + escapeInline(title) + '</div>' +
+                              '<div class="record-subtitle mono" title="' + escapeInline(subtitle) + '">' + escapeInline(subtitle) + '</div>' +
+                            '</div>' +
+                          '</button>';
+                        })
+                        .join("");
+                      const latestAttempt = runGroup.attempts[0];
+                      const runTitle = formatSidebarTimeWithStatus(runGroup.updatedAt, latestAttempt && latestAttempt.status);
 
-        layout.panelHeader.innerHTML =
-          '<div class="session-panel-title" title="' + escapeInline(activeSession.label) + '">' + titleIconsPrefix + escapeInline(activeSession.label) + '</div>' +
-          routingSubtitle;
-        state.renderedSessionHeaderSignature = signature;
-      }
+                      return '<section class="run-group' + (runExpanded ? " expanded" : "") + '">' +
+                        '<button class="run-toggle" type="button" data-run-group-id="' + escapeInline(runGroup.id) + '" aria-expanded="' + String(runExpanded) + '">' +
+                          '<div class="run-toggle-row">' +
+                            '<span class="run-caret mono" aria-hidden="true">&gt;</span>' +
+                            '<div>' +
+                              '<div class="run-title" title="' + escapeInline(runTitle) + '">' + escapeInline(runTitle) + '</div>' +
+                            '</div>' +
+                          '</div>' +
+                        '</button>' +
+                        (runExpanded ? '<div class="run-body">' + attempts + '</div>' : "") +
+                      '</section>';
+                    })
+                    .join("");
 
-      function renderSessionPanelBody(layout, activeSession) {
-        if (!(layout.panelBody instanceof HTMLElement)) {
-          return;
-        }
-        const body = activeSession.instances
-          .map((instance) => {
-            const instanceExpanded = isSessionInstanceExpanded(instance.id);
-            const instanceBody = instance.runs
-              .map((runGroup) => {
-                if (runGroup.attempts.length <= 1) {
-                  const attempt = runGroup.attempts[0];
-                  const selected = attempt.runAttemptId === state.selectedRunAttemptId ? " active" : "";
-                  const recordTitle = formatSidebarTimeWithStatus(runGroup.updatedAt, attempt.status);
-                  return '<button class="record' + selected + '" type="button" data-run-attempt-id="' + escapeInline(attempt.runAttemptId) + '">' +
-                    '<div class="record-head">' +
-                      '<div>' +
-                        '<div class="record-title" title="' + escapeInline(recordTitle) + '">' + escapeInline(recordTitle) + '</div>' +
-                      '</div>' +
-                    '</div>' +
-                  '</button>';
-                }
-
-                const runExpanded = isRunExpanded(runGroup.id);
-                const attempts = runGroup.attempts
-                  .map((attempt) => {
-                    const selected = attempt.runAttemptId === state.selectedRunAttemptId ? " active" : "";
-                    const title = formatAttemptLabel(attempt);
-                    const subtitle = formatSidebarTimeWithStatus(attempt.updatedAt, attempt.status);
-                    return '<button class="record' + selected + '" type="button" data-run-attempt-id="' + escapeInline(attempt.runAttemptId) + '">' +
-                      '<div class="record-head">' +
+                  const instanceCostLabel = formatCostPairInline(instance);
+                  const instanceCostLine = instanceCostLabel
+                    ? '<div class="session-instance-cost mono">' + escapeInline(instanceCostLabel) + '</div>'
+                    : '';
+                  return '<section class="session-instance-group' + (instanceExpanded ? " expanded" : "") + '">' +
+                    '<button class="session-instance-toggle" type="button" data-session-instance-id="' + escapeInline(instance.id) + '" aria-expanded="' + String(instanceExpanded) + '">' +
+                      '<div class="session-instance-row">' +
+                        '<span class="session-instance-caret mono" aria-hidden="true">&gt;</span>' +
                         '<div>' +
-                          '<div class="record-title" title="' + escapeInline(title) + '">' + escapeInline(title) + '</div>' +
-                          '<div class="record-subtitle mono" title="' + escapeInline(subtitle) + '">' + escapeInline(subtitle) + '</div>' +
+                          '<div class="session-instance-title" title="' + escapeInline(instance.routingLabel || "Session instance") + '">' + escapeInline(instance.routingLabel || "Session instance") + '</div>' +
+                          instanceCostLine +
                         '</div>' +
                       '</div>' +
-                    '</button>';
-                  })
-                  .join("");
-                const latestAttempt = runGroup.attempts[0];
-                const runTitle = formatSidebarTimeWithStatus(runGroup.updatedAt, latestAttempt && latestAttempt.status);
+                    '</button>' +
+                    (instanceExpanded ? '<div class="session-instance-body">' + instanceBody + '</div>' : "") +
+                  '</section>';
+                })
+                .join("");
+            }
 
-                return '<section class="run-group' + (runExpanded ? " expanded" : "") + '">' +
-                  '<button class="run-toggle" type="button" data-run-group-id="' + escapeInline(runGroup.id) + '" aria-expanded="' + String(runExpanded) + '">' +
-                    '<div class="run-toggle-row">' +
-                      '<span class="run-caret mono" aria-hidden="true">&gt;</span>' +
-                      '<div>' +
-                        '<div class="run-title" title="' + escapeInline(runTitle) + '">' + escapeInline(runTitle) + '</div>' +
-                      '</div>' +
-                    '</div>' +
-                  '</button>' +
-                  (runExpanded ? '<div class="run-body">' + attempts + '</div>' : "") +
-                '</section>';
-              })
-              .join("");
-
-            const instanceCostLabel = formatCostPairInline(instance);
-            const instanceCostLine = instanceCostLabel
-              ? '<div class="session-instance-cost mono">' + escapeInline(instanceCostLabel) + '</div>'
-              : '';
-            return '<section class="session-instance-group' + (instanceExpanded ? " expanded" : "") + '">' +
-              '<button class="session-instance-toggle" type="button" data-session-instance-id="' + escapeInline(instance.id) + '" aria-expanded="' + String(instanceExpanded) + '">' +
-                '<div class="session-instance-row">' +
-                  '<span class="session-instance-caret mono" aria-hidden="true">&gt;</span>' +
-                  '<div>' +
-                    '<div class="session-instance-title" title="' + escapeInline(instance.routingLabel || "Session instance") + '">' + escapeInline(instance.routingLabel || "Session instance") + '</div>' +
-                    instanceCostLine +
-                  '</div>' +
+            return '<div class="session-section' + (isActive ? " active" : "") + '">' +
+              '<button class="session-tab" type="button" data-session-tab-id="' + escapeInline(session.id) + '">' +
+                '<div class="session-tab-row">' +
+                  '<div class="session-tab-title mono">' + escapeInline(sessionTitle) + '</div>' +
+                  '<div class="session-tab-subtitle mono">' + escapeInline(sessionSubtitle) + '</div>' +
                 '</div>' +
               '</button>' +
-              (instanceExpanded ? '<div class="session-instance-body">' + instanceBody + '</div>' : "") +
-            '</section>';
+              (isActive && instancesHtml ? '<div class="session-body">' + instancesHtml + '</div>' : '') +
+            '</div>';
           })
           .join("");
-
-        layout.panelBody.innerHTML = body;
       }
 
       function renderRuns() {
@@ -773,8 +731,6 @@ export function renderRunObserverClientScript(params: {
         if (!agentChannelGroups.length) {
           nodes.runs.innerHTML = '<div class="empty" style="padding: 18px;">No matching runs.</div>';
           state.renderedAgentChannelTabsSignature = "";
-          state.renderedSessionTabsSignature = "";
-          state.renderedSessionHeaderSignature = "";
           return;
         }
 
@@ -786,9 +742,7 @@ export function renderRunObserverClientScript(params: {
           sessions.find((session) => session.id === state.activeSessionGroupId) || sessions[0];
         const layout = ensureRunBrowserLayout();
         renderAgentChannelTabs(layout, agentChannelGroups, activeAgentChannelGroup);
-        renderSessionTabs(layout, sessions, activeSession);
-        renderSessionPanelHeader(layout, activeAgentChannelGroup, activeSession);
-        renderSessionPanelBody(layout, activeSession);
+        renderSidebarSessions(layout, sessions, activeSession);
       }
 
       function findRenderedRunAttemptButton(runAttemptId) {
