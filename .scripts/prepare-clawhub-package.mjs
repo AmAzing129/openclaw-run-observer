@@ -7,7 +7,7 @@ const REQUIRED_ROOT_FILES = ["package.json", "openclaw.plugin.json", "README.md"
 function printUsage() {
   process.stdout.write(
     [
-      "Usage: node ./scripts/prepare-clawhub-package.mjs <output-dir>",
+      "Usage: node ./.scripts/prepare-clawhub-package.mjs <output-dir>",
       "",
       "Copies the built runtime files and required metadata into a clean folder for ClawHub publishing."
     ].join("\n") + "\n"

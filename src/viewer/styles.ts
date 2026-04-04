@@ -1090,7 +1090,7 @@ export const RUN_OBSERVER_VIEWER_STYLES = `
         align-items: flex-start;
         justify-content: space-between;
         gap: 10px;
-        padding-right: 10px;
+        padding: 10px 12px 0;
       }
 
       .chat-msg.role-system {
@@ -1115,6 +1115,14 @@ export const RUN_OBSERVER_VIEWER_STYLES = `
         border-left: 3px solid #7c6cb0;
         justify-self: start;
         background: rgba(124, 108, 176, 0.05);
+        width: min(100%, 960px);
+        max-width: 100%;
+      }
+
+      .chat-msg.role-tool.is-tool-error,
+      .chat-msg.role-function.is-tool-error {
+        border-left-color: var(--danger);
+        background: rgba(163, 62, 44, 0.06);
       }
 
       .chat-msg.has-tool-calls {
@@ -1123,7 +1131,7 @@ export const RUN_OBSERVER_VIEWER_STYLES = `
 
       .chat-role {
         display: inline-block;
-        padding: 8px 14px 0;
+        padding: 0;
         font-size: 11px;
         font-weight: 700;
         letter-spacing: 0.1em;
@@ -1156,8 +1164,12 @@ export const RUN_OBSERVER_VIEWER_STYLES = `
         color: #7c6cb0;
       }
 
+      .chat-msg.role-tool .chat-role-badge.badge-tool-result {
+        background: rgba(124, 108, 176, 0.14);
+      }
+
       .chat-content {
-        padding: 6px 14px 12px;
+        padding: 8px 14px 14px;
         font-family: "SFMono-Regular", Menlo, Consolas, monospace;
         font-size: 12px;
         line-height: 1.5;
@@ -1168,39 +1180,58 @@ export const RUN_OBSERVER_VIEWER_STYLES = `
       }
 
       .tool-calls-list {
-        padding: 0 14px 10px;
+        padding: 4px 14px 14px;
         display: grid;
-        gap: 6px;
+        gap: 8px;
       }
 
       .tool-call-item {
-        border: 1px solid rgba(124, 108, 176, 0.18);
-        border-radius: 10px;
-        background: rgba(124, 108, 176, 0.05);
-        padding: 8px 12px;
-        font-family: "SFMono-Regular", Menlo, Consolas, monospace;
+        border: 1px solid rgba(124, 108, 176, 0.16);
+        border-radius: 14px;
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.76), rgba(249, 246, 255, 0.78));
+        padding: 10px 12px;
         font-size: 11px;
         line-height: 1.45;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65);
+      }
+
+      .tool-call-heading {
+        min-width: 0;
+        display: grid;
+        gap: 4px;
+      }
+
+      .tool-call-kicker {
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: rgba(124, 108, 176, 0.78);
       }
 
       .tool-call-name {
         font-weight: 700;
         color: #7c6cb0;
-        margin-bottom: 4px;
+        font-size: 15px;
+        letter-spacing: 0.01em;
+        line-height: 1.2;
       }
 
       .tool-call-detail {
         font-weight: 400;
         color: var(--muted);
         font-size: 11px;
+        word-break: break-word;
+        font-family: "SFMono-Regular", Menlo, Consolas, monospace;
       }
 
       .tool-call-args-toggle {
         font-size: 11px;
         color: var(--muted);
         cursor: pointer;
-        padding: 2px 0;
+        padding: 8px 0 0;
         list-style: none;
+        font-weight: 600;
       }
 
       .tool-call-args-toggle::before {
@@ -1214,20 +1245,90 @@ export const RUN_OBSERVER_VIEWER_STYLES = `
       .tool-call-args {
         white-space: pre-wrap;
         word-break: break-word;
-        max-height: 120px;
+        max-height: 160px;
         overflow: auto;
         color: var(--muted);
+        margin-top: 6px;
+        padding: 10px 11px;
+        border-radius: 10px;
+        background: rgba(255, 255, 255, 0.66);
+        border: 1px solid rgba(124, 108, 176, 0.12);
+        font-family: "SFMono-Regular", Menlo, Consolas, monospace;
+      }
+
+      .tool-call-args-details {
+        margin-top: 4px;
+        padding-top: 8px;
+        border-top: 1px dashed rgba(124, 108, 176, 0.16);
       }
 
       .tool-result-summary {
-        padding: 4px 14px 0;
+        padding: 8px 14px 0;
+        display: grid;
+        gap: 10px;
+      }
+
+      .tool-result-topline {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr);
+        gap: 10px;
+        align-items: start;
+      }
+
+      .tool-result-heading {
+        min-width: 0;
+        display: grid;
+        gap: 4px;
+      }
+
+      .tool-result-name {
+        font-size: 15px;
+        font-weight: 700;
+        line-height: 1.25;
+        color: var(--text);
+      }
+
+      .tool-result-meta {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .tool-result-status {
+        display: inline-flex;
+        align-items: center;
+        padding: 4px 9px;
+        border-radius: 999px;
+        background: rgba(42, 119, 82, 0.12);
+        color: var(--ok);
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+
+      .tool-result-status.is-error {
+        background: rgba(163, 62, 44, 0.12);
+        color: var(--danger);
       }
 
       .tool-result-detail {
         font-size: 12px;
-        font-weight: 600;
-        color: var(--text);
+        font-weight: 500;
+        color: var(--muted);
         font-family: "SFMono-Regular", Menlo, Consolas, monospace;
+        word-break: break-word;
+      }
+
+      .tool-result-chip {
+        display: inline-flex;
+        align-items: center;
+        padding: 4px 8px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.64);
+        border: 1px solid rgba(124, 108, 176, 0.1);
+        min-width: 0;
       }
 
       .tool-result-size {
@@ -1236,16 +1337,46 @@ export const RUN_OBSERVER_VIEWER_STYLES = `
         font-family: "SFMono-Regular", Menlo, Consolas, monospace;
       }
 
+      .tool-result-preview {
+        padding: 10px 11px;
+        border-radius: 12px;
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.76), rgba(247, 243, 255, 0.72));
+        border: 1px solid rgba(124, 108, 176, 0.12);
+        font-family: "SFMono-Regular", Menlo, Consolas, monospace;
+        font-size: 11px;
+        line-height: 1.5;
+        color: var(--text);
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+
+      .tool-result-empty {
+        padding: 0 14px 14px;
+        font-size: 12px;
+        color: var(--muted);
+      }
+
       .chat-msg.role-tool > details {
-        border: 0;
-        border-radius: 0;
-        background: transparent;
+        margin: 4px 14px 14px;
+        border: 1px solid rgba(124, 108, 176, 0.14);
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.58);
       }
 
       .chat-msg.role-tool > details > summary {
         font-size: 12px;
-        padding: 4px 14px 2px;
+        padding: 10px 12px 8px;
         color: var(--muted);
+        cursor: pointer;
+        font-weight: 600;
+      }
+
+      .chat-msg.role-tool > details.tool-result-output > summary {
+        font-weight: 600;
+      }
+
+      .chat-msg.role-tool > details > .chat-content {
+        padding-top: 0;
       }
 
       .section-divider {

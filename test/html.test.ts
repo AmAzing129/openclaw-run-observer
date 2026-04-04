@@ -564,4 +564,23 @@ describe("renderRunObserverHtml", () => {
     expect(html).not.toContain('id="run-attempt-id-chip"');
     expect(html).not.toContain("runAttemptIdChip:");
   });
+
+  it("renders structured tool results and extracts tool calls from assistant content blocks", () => {
+    const script = renderRunObserverClientScript({
+      basePath: "/plugins/run-observer",
+    });
+
+    expect(script).toContain("function isToolCallBlock(block) {");
+    expect(script).toContain('return type === "toolCall" || type === "toolUse" || type === "functionCall" || type === "toolcall";');
+    expect(script).toContain("function extractToolCalls(msg) {");
+    expect(script).toContain("var contentBlocks = Array.isArray(msg && msg.content) ? msg.content : null;");
+    expect(script).toContain("var isErrorToolResult = Boolean(msg && msg.isError);");
+    expect(script).toContain("tool-result-status");
+    expect(script).toContain("tool-result-topline");
+    expect(script).toContain("tool-result-chip");
+    expect(script).toContain("tool-result-preview");
+    expect(script).toContain("tool-result-empty");
+    expect(script).toContain("tool-call-heading");
+    expect(script).not.toContain("tool-call-id");
+  });
 });

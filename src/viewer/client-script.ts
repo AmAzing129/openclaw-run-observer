@@ -1235,10 +1235,20 @@ export function renderRunObserverClientScript(params: {
       }
 
       function parseToolArgs(fn) {
+        if (!fn || typeof fn !== "object") return null;
         if (typeof fn.arguments === "string") {
           try { return JSON.parse(fn.arguments); } catch (e) { return null; }
         }
-        return fn.arguments || null;
+        if (fn.arguments && typeof fn.arguments === "object") {
+          return fn.arguments;
+        }
+        if (typeof fn.input === "string") {
+          try { return JSON.parse(fn.input); } catch (e) { return { input: fn.input }; }
+        }
+        if (fn.input && typeof fn.input === "object") {
+          return fn.input;
+        }
+        return fn.args || null;
       }
 
       function resolveToolDetail(name, args) {
@@ -1296,18 +1306,99 @@ export function renderRunObserverClientScript(params: {
         return (name || "Tool").replace(/_/g, " ").replace(/\\b\\w/g, function (c) { return c.toUpperCase(); });
       }
 
+      function isToolCallBlock(block) {
+        if (!block || typeof block !== "object") return false;
+        var type = block.type;
+        return type === "toolCall" || type === "toolUse" || type === "functionCall" || type === "toolcall";
+      }
+
+      function getToolResultCallId(msg) {
+        if (!msg || typeof msg !== "object") return "";
+        return msg.tool_call_id || msg.toolCallId || msg.toolUseId || "";
+      }
+
+      function extractToolCalls(msg) {
+        var extracted = [];
+        var seenIds = {};
+
+        function pushCall(rawCall) {
+          if (!rawCall || typeof rawCall !== "object") return;
+          var fn = rawCall.function || rawCall;
+          var id = rawCall.id || rawCall.tool_call_id || rawCall.toolCallId || fn.id || fn.tool_call_id || fn.toolCallId || "";
+          var name = fn.name || rawCall.name || rawCall.toolName || rawCall.tool_name || "";
+          if (id && seenIds[id]) return;
+          if (id) seenIds[id] = true;
+          extracted.push({
+            id: id || "",
+            name: name || "",
+            args: parseToolArgs(fn),
+          });
+        }
+
+        var topLevelCalls = (msg && (msg.tool_calls || msg.toolCalls)) || null;
+        if (Array.isArray(topLevelCalls)) {
+          for (var i = 0; i < topLevelCalls.length; i++) {
+            pushCall(topLevelCalls[i]);
+          }
+        }
+
+        var contentBlocks = Array.isArray(msg && msg.content) ? msg.content : null;
+        if (contentBlocks) {
+          for (var j = 0; j < contentBlocks.length; j++) {
+            var block = contentBlocks[j];
+            if (!isToolCallBlock(block)) continue;
+            pushCall(block);
+          }
+        }
+
+        return extracted;
+      }
+
+      function formatMessageContent(msg, options) {
+        var skipToolCallBlocks = Boolean(options && options.skipToolCallBlocks);
+        if (typeof msg === "string") {
+          return msg;
+        }
+        if (msg && typeof msg.content === "string") {
+          return msg.content;
+        }
+        if (msg && Array.isArray(msg.content)) {
+          return msg.content.map(function (item) {
+            if (typeof item === "string") return item;
+            if (!item || typeof item !== "object") return "";
+            if (item.type === "text" && typeof item.text === "string") return item.text;
+            if (item.type === "thinking" && typeof item.thinking === "string") return item.thinking;
+            if (item.type === "image") return "[image]";
+            if (skipToolCallBlocks && isToolCallBlock(item)) return "";
+            return JSON.stringify(item, null, 2);
+          }).filter(function (part) { return Boolean(part); }).join("\\n").trim();
+        }
+        if (msg) {
+          return JSON.stringify(msg.content != null ? msg.content : msg, null, 2);
+        }
+        return "";
+      }
+
+      function buildToolResultPreview(content) {
+        if (!content) return "";
+        var normalized = String(content).trim();
+        if (!normalized) return "";
+        var preview = normalized.split("\\n").slice(0, 4).join("\\n").trim();
+        if (preview.length > 220) {
+          preview = preview.slice(0, 217).trimEnd() + "…";
+        }
+        return preview;
+      }
+
       function buildToolCallMap(messages) {
         var map = {};
         for (var i = 0; i < messages.length; i++) {
-          var m = messages[i];
-          var calls = (m && (m.tool_calls || m.toolCalls)) || null;
-          if (!Array.isArray(calls)) continue;
+          var calls = extractToolCalls(messages[i]);
+          if (calls.length === 0) continue;
           for (var j = 0; j < calls.length; j++) {
             var tc = calls[j];
-            var fn = tc.function || tc;
-            var id = tc.id || tc.tool_call_id || tc.toolCallId;
-            if (!id) continue;
-            map[id] = { name: fn.name || tc.name || "", args: parseToolArgs(fn) };
+            if (!tc.id) continue;
+            map[tc.id] = { name: tc.name || "", args: tc.args };
           }
         }
         return map;
@@ -1316,50 +1407,42 @@ export function renderRunObserverClientScript(params: {
       function renderChatMessage(msg, toolCallMap) {
         var role = (msg && msg.role) || "unknown";
         var roleLower = role.toLowerCase();
-
-        var isToolResult = roleLower === "tool" || roleLower === "function" ||
-          (msg && (msg.tool_call_id || msg.toolCallId));
-        var toolCalls = (msg && (msg.tool_calls || msg.toolCalls)) || null;
-        var hasToolCalls = Array.isArray(toolCalls) && toolCalls.length > 0;
+        var toolCallId = getToolResultCallId(msg);
+        var isToolResult = roleLower === "tool" || roleLower === "toolresult" || roleLower === "function" ||
+          Boolean(toolCallId);
+        var toolCalls = extractToolCalls(msg);
+        var hasToolCalls = toolCalls.length > 0;
+        var isErrorToolResult = Boolean(msg && msg.isError);
 
         if (isToolResult) {
           roleLower = "tool";
         }
 
-        var content = "";
-        if (typeof msg === "string") {
-          content = msg;
-        } else if (msg && typeof msg.content === "string") {
-          content = msg.content;
-        } else if (msg && Array.isArray(msg.content)) {
-          content = msg.content.map(function (item) {
-            if (typeof item === "string") return item;
-            if (item && item.type === "text" && typeof item.text === "string") return item.text;
-            return JSON.stringify(item, null, 2);
-          }).join("\\n");
-        } else if (msg) {
-          content = JSON.stringify(msg.content != null ? msg.content : msg, null, 2);
-        }
+        var content = formatMessageContent(msg, { skipToolCallBlocks: hasToolCalls });
 
         var roleClass = "role-" + roleLower.replace(/[^a-z]/g, "");
-        var extraClass = hasToolCalls ? " has-tool-calls" : "";
+        var extraClasses = [];
+        if (hasToolCalls) extraClasses.push("has-tool-calls");
+        if (isToolResult && isErrorToolResult) extraClasses.push("is-tool-error");
+        var extraClass = extraClasses.length ? " " + extraClasses.join(" ") : "";
         var copyText = content;
         if (!copyText && msg) {
           copyText = JSON.stringify(msg, null, 2);
         }
 
         var badgeHtml = "";
+        var toolResultLabel = "";
+        var toolResultMatchedCall = toolCallId && toolCallMap ? toolCallMap[toolCallId] : null;
         var toolResultDetail = "";
         if (isToolResult) {
-          var toolName = (msg && (msg.name || msg.toolName || msg.tool_name)) || "";
-          var label = toolDisplayLabel(toolName);
-          badgeHtml = '<span class="chat-role-badge badge-tool-result">' + escapeInline(label) + ' result</span>';
-
-          var tcId = msg && (msg.tool_call_id || msg.toolCallId);
-          if (tcId && toolCallMap && toolCallMap[tcId]) {
-            var matched = toolCallMap[tcId];
-            toolResultDetail = resolveToolDetail(matched.name || toolName, matched.args) || "";
-          }
+          var toolName = (msg && (msg.name || msg.toolName || msg.tool_name)) ||
+            (toolResultMatchedCall && toolResultMatchedCall.name) || "";
+          toolResultLabel = toolDisplayLabel(toolName);
+          badgeHtml = '<span class="chat-role-badge badge-tool-result">' + escapeInline(toolResultLabel) + ' result</span>';
+          toolResultDetail = resolveToolDetail(
+            (toolResultMatchedCall && toolResultMatchedCall.name) || toolName,
+            toolResultMatchedCall && toolResultMatchedCall.args,
+          ) || "";
         } else if (hasToolCalls) {
           badgeHtml = '<span class="chat-role-badge badge-tool-call">' +
             toolCalls.length + ' tool call' + (toolCalls.length > 1 ? 's' : '') + '</span>';
@@ -1378,18 +1461,37 @@ export function renderRunObserverClientScript(params: {
 
         if (isToolResult) {
           var contentLen = content ? content.length : 0;
-          var isLong = contentLen > 300;
+          var contentLineCount = content ? content.split("\\n").length : 0;
+          var preview = buildToolResultPreview(content);
+          var isLong = contentLen > 300 || contentLineCount > 6;
           html += '<div class="tool-result-summary">';
+          html += '<div class="tool-result-topline">';
+          html += '<span class="tool-result-status' + (isErrorToolResult ? ' is-error' : '') + '">' +
+            (isErrorToolResult ? 'Error' : 'Complete') + '</span>';
+          html += '<div class="tool-result-heading">';
+          html += '<div class="tool-result-name">' + escapeInline((toolResultLabel || "Tool") + ' result') + '</div>';
           if (toolResultDetail) {
-            html += '<span class="tool-result-detail">' + escapeInline(toolResultDetail) + '</span> · ';
+            html += '<div class="tool-result-detail">' + escapeInline(toolResultDetail) + '</div>';
           }
-          html += '<span class="tool-result-size">' + contentLen.toLocaleString() + ' chars</span>';
+          html += '</div>';
+          html += '</div>';
+          html += '<div class="tool-result-meta">';
+          html += '<span class="tool-result-chip tool-result-size">' + contentLen.toLocaleString() + ' chars</span>';
+          if (contentLineCount > 0) {
+            html += '<span class="tool-result-chip tool-result-size">' + contentLineCount.toLocaleString() + ' lines</span>';
+          }
+          html += '</div>';
+          if (preview && isLong) {
+            html += '<div class="tool-result-preview">' + escapeInline(preview) + '</div>';
+          }
           html += '</div>';
           if (content) {
-            html += '<details' + (isLong ? '' : ' open') + '>';
-            html += '<summary>Output</summary>';
+            html += '<details class="tool-result-output"' + (isLong ? '' : ' open') + '>';
+            html += '<summary>' + (isLong ? 'Full output' : 'Output') + '</summary>';
             html += '<div class="chat-content">' + escapeInline(content) + '</div>';
             html += '</details>';
+          } else {
+            html += '<div class="tool-result-empty">No output content.</div>';
           }
         } else if (content) {
           html += '<div class="chat-content">' + escapeInline(content) + '</div>';
@@ -1399,22 +1501,23 @@ export function renderRunObserverClientScript(params: {
           html += '<div class="tool-calls-list">';
           for (var i = 0; i < toolCalls.length; i++) {
             var tc = toolCalls[i];
-            var fn = (tc.function || tc);
-            var tcName = fn.name || tc.name || "unnamed";
+            var tcName = tc.name || "unnamed";
             var tcLabel = toolDisplayLabel(tcName);
-            var tcArgsObj = parseToolArgs(fn);
+            var tcArgsObj = tc.args;
             var tcDetail = resolveToolDetail(tcName, tcArgsObj);
 
             html += '<div class="tool-call-item">';
-            html += '<div class="tool-call-name">' + escapeInline(tcLabel);
+            html += '<div class="tool-call-heading">';
+            html += '<div class="tool-call-kicker">Tool call</div>';
+            html += '<div class="tool-call-name">' + escapeInline(tcLabel) + '</div>';
             if (tcDetail) {
-              html += ' <span class="tool-call-detail">' + escapeInline(tcDetail) + '</span>';
+              html += '<div class="tool-call-detail">' + escapeInline(tcDetail) + '</div>';
             }
             html += '</div>';
 
             if (tcArgsObj) {
               var tcArgsStr = JSON.stringify(tcArgsObj, null, 2);
-              html += '<details><summary class="tool-call-args-toggle">args</summary>';
+              html += '<details class="tool-call-args-details"><summary class="tool-call-args-toggle">Show args</summary>';
               html += '<div class="tool-call-args">' + escapeInline(tcArgsStr) + '</div>';
               html += '</details>';
             }
